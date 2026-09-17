@@ -1,0 +1,20 @@
+services:
+  kpibalaganchikbot:
+    build: .
+    image: kpibalaganchikbot:local
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      # SQLite + бэкапы живут на хосте, переживают пересборку контейнера
+      - ./data:/app/data
+    tmpfs:
+      - /tmp
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s   # SIGTERM → wal_checkpoint → чистое закрытие
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
