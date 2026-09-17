@@ -17,6 +17,9 @@ def main() -> int:
         return 0
     except Exception as e:  # noqa: BLE001
         print("fail:", e)
+        if "unable to open database file" in str(e):
+            print("подсказка: проверь права на data/ — хост-папка должна быть "
+                  "доступна uid 10001 (chown -R 10001:10001 data), см. docs/80")
         return 1
 
 

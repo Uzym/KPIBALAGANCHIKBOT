@@ -23,8 +23,15 @@ docker compose version   # проверить плагин
 
 ```bash
 mkdir -p /opt/club-bot && cd /opt/club-bot
-git clone <репозиторий> .            # или scp файлов проекта
+git clone https://github.com/Uzym/KPIBALAGANCHIKBOT.git .
+# первый клон по HTTPS спросит username + пароль; пароль = Personal Access Token:
+# GitHub → Settings → Developer settings → Personal access tokens → classic, права repo.
+# Репозиторий держи Private. .env и data/ в .gitignore — в гит не попадают.
+git config credential.helper store   # запомнить токен, чтобы не вводить каждый раз
 cp .env.example .env && nano .env
+mkdir -p data && sudo chown -R 10001:10001 data
+# ⚠️ важно: data/ нет в гите, docker создаст её от root, а контейнер пишет
+# под uid 10001 — без chown бот не сможет открыть БД
 ```
 
 Заполни `.env` (минимум):
@@ -110,6 +117,7 @@ docker compose start
 | Бот не пишет в TG | Бот должен быть админом… в v5 TG-канала нет: проверь, что TG_TOKEN рабочий (`getMe` в логах старта) и слинковка задана в ВК |
 | Диск растёт | Retention-чистка ежедневно + VACUUM по понедельникам + ротация бэкапов (7) + лог-ротация. Проверь: `du -sh /opt/club-bot/data` |
 | `database is locked` | Один инстанс! Не запускай второй контейнер на тот же volume: `docker compose ps` должен показывать один kpibalaganchikbot |
+| `unable to open database file` (healthcheck) | Права на `data/`: `sudo chown -R 10001:10001 data` (папку создал root при монтировании/клоне) |
 
 ## 9. Автозапуск и мониторинг
 

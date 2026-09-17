@@ -38,13 +38,23 @@ async def main() -> None:
             pass  # Windows: SIGTERM-хендлер не поддерживается — SIGINT хватит
 
     task = asyncio.create_task(app.run(), name="app")
-    await stop.wait()
-    logging.getLogger("main").info("получен сигнал остановки")
-    task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        pass
+    stopper = asyncio.create_task(stop.wait(), name="stop")
+    done, pending = await asyncio.wait({task, stopper},
+                                       return_when=asyncio.FIRST_COMPLETED)
+    if stopper in done:
+        logging.getLogger("main").info("получен сигнал остановки")
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        await app.shutdown()
+        return
+    # app.run() завершился сам (штатно или с ошибкой) — ждём результат,
+    # чтобы исключение из bootstrap/задач не глоталось молча
+    for p in pending:
+        p.cancel()
+    await task
     await app.shutdown()
 
 
