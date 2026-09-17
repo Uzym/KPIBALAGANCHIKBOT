@@ -1,10 +1,27 @@
-"""Конфигурация из .env (см. .env.example)."""
+"""Конфигурация из .env (см. .env.example) + переменные окружения.
+
+Приоритет: переданные overrides > переменные окружения (docker env_file)
+> файл .env. В контейнере файла .env нет (исключён из образа), поэтому
+конфиг собирается из окружения, которое compose передаёт через env_file.
+"""
 from __future__ import annotations
 
 import datetime as dt
+import os
 import pathlib
 from dataclasses import dataclass, field
 from zoneinfo import ZoneInfo
+
+# ключи, которые этот конфиг понимает (фильтр для os.environ)
+_ENV_KEYS = {
+    "VK_TOKEN", "VK_GROUP_ID", "VK_API_VERSION", "TG_TOKEN",
+    "DB_PATH", "TZ",
+    "ADMIN_VK_IDS", "TECH_ADMIN_VK_ID",
+    "REMINDER_HOURS", "AUTOCLOSE_MODE", "AUTOCLOSE_MINUTES",
+    "VK_STRIKE_FALLBACK", "POLL_MAX_OPTIONS", "ANNOUNCE_NOTICE_TTL_HOURS",
+    "VK_WALL_LOG",
+    "SSL_VERIFY", "SSL_CA_BUNDLE",
+}
 
 
 def _load_env_file(path: str) -> dict[str, str]:
@@ -69,6 +86,11 @@ class Config:
     @classmethod
     def load(cls, env_path: str = ".env", overrides: dict | None = None) -> "Config":
         raw = _load_env_file(env_path)
+        # переменные окружения (docker env_file) приоритетнее файла;
+        # пустые значения не перекрывают файл
+        for key, value in os.environ.items():
+            if key in _ENV_KEYS and value:
+                raw[key] = value
         raw.update({k: str(v) for k, v in (overrides or {}).items()})
 
         def ints(key: str) -> list[int]:

@@ -59,6 +59,11 @@ docker compose exec kpibalaganchikbot python integration_check.py --messaging
 ## 5. Что внутри compose
 
 - `./data:/app/data` — **SQLite и бэкапы на хосте** (переживают пересборку);
+- `env_file: .env` — токены уходят в контейнер как **переменные окружения**
+  (сам файл `.env` в образ не попадает — он в `.dockerignore`); `config.py`
+  читает окружение с приоритетом над файлом, поэтому `docker compose config`
+  должен показывать токены — если показывает, а бот ругается «Конфигурация
+  неполная», пересоздай контейнер: `docker compose up -d --force-recreate`;
 - `restart: unless-stopped` — поднимется после ребута VPS;
 - HEALTHCHECK — раз в 60 с проверяет, что БД открывается;
 - `stop_grace_period: 30s` — при остановке бот успевает сделать
