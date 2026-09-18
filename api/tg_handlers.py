@@ -14,6 +14,12 @@ from .renderers import render_tg
 
 log = logging.getLogger("tg.handlers")
 
+
+def _appeal_kb() -> dict:
+    """Reply-клавиатура режима обращения: одна кнопка остановки вместо меню."""
+    return {"keyboard": [[{"text": "⏹ Закончить"}]], "resize_keyboard": True}
+
+
 LINK_ALERT = (
     "⚠️ Голос не засчитан. 1) Напиши боту клуба в ВК — он проверит, что ты "
     "в сообществе. 2) В настройках укажи свой ник в TG. Имена — из ВК."
@@ -103,14 +109,21 @@ async def _on_private(app, sender: dict, chat: dict, m: dict) -> None:
 
     state = app.dialog_states.get(state_key)
     if state == "appeal":
-        if text.startswith("/стоп"):
+        low_a = text.lower()
+        if (low_a.startswith("/стоп") or low_a.startswith("/stop")
+                or low_a.startswith("/start") or low_a.startswith("/начать")
+                or text == "⏹ Закончить" or low_a == "начать"):
             app.dialog_states.pop(state_key, None)
-            await app.tg.send_message(chat["id"], "Вышел из режима обращения.")
+            await app.tg.send_message(chat["id"], "Вышел из режима обращения.",
+                                      reply_markup={"remove_keyboard": True})
             await send_menu_tg(app, uid, linked, vk_name)
             return
         if text:
             await _forward_appeal(app, uid, sender, m)
-            await app.tg.send_message(chat["id"], "Переслал админам. Пиши ещё или /стоп.")
+            await app.tg.send_message(
+                chat["id"],
+                "Переслал админам. Пиши ещё — или ⏹ Закончить / «Начать» / /start.",
+            )
             return
 
     low = text.lower()
@@ -127,7 +140,12 @@ async def _on_private(app, sender: dict, chat: dict, m: dict) -> None:
         return
     if text == "📩 Написать админам":
         app.dialog_states[state_key] = "appeal"
-        await app.tg.send_message(chat["id"], "Пиши сообщение — перешлю админам клуба. /стоп — отмена.")
+        await app.tg.send_message(
+            chat["id"],
+            "Пиши сообщение — перешлю админам клуба.\n"
+            "⏹ Закончить, «Начать» или /start — выйти из режима.",
+            reply_markup=_appeal_kb(),
+        )
         return
 
     if low.startswith("/start"):
@@ -189,7 +207,12 @@ async def _on_callback(app, cb: dict) -> None:
             await toast(f"Уведомления: {'вкл ✅' if notify else 'выкл ❌'}")
         elif value == "appeal":
             app.dialog_states[("tg", uid)] = "appeal"
-            await app.tg.send_message(uid, "Пиши сообщение — перешлю админам клуба. /стоп — отмена.")
+            await app.tg.send_message(
+                uid,
+                "Пиши сообщение — перешлю админам клуба.\n"
+                "⏹ Закончить, «Начать» или /start — выйти из режима.",
+                reply_markup=_appeal_kb(),
+            )
         return
 
     parts = data.split(":")

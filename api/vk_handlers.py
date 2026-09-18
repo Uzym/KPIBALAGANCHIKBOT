@@ -206,6 +206,19 @@ async def send_menu(app, uid: int) -> None:
     await send_reply_kb(app, uid, text, rows)
 
 
+async def _on_start(app, uid: int) -> str | None:
+    """Обработка /start и «Начать»: реактивация при stopped. Возвращает ответ, если был."""
+    reply = None
+    with app.db.session() as s:
+        acc = repo.ensure_account(s, "vk", uid)
+        sub = repo.get_subscription(s, acc.id)
+        if sub is not None and sub.status == "stopped":
+            given = profiles_bll.activate_subscription(s, app.cfg, acc, uid)
+            reply = f"С возвращением! Карточек доставлено: {given}."
+        s.commit()
+    return reply
+
+
 # --- вход ------------------------------------------------------------------------
 
 
@@ -374,7 +387,16 @@ async def _on_dm_message(app, msg: IncomingMessage) -> None:
             )
             return
         if state == "appeal":
-            if low.startswith("/стоп") or text == "⏹ Закончить":
+            if low.startswith("/start") or low.startswith("/начать") or low == "начать":
+                app.dialog_states.pop(state_key, None)
+                await app.vk.send_message(uid, "Вышел из режима обращения.")
+                reply = await _on_start(app, uid)
+                if reply:
+                    await app.vk.send_message(uid, reply)
+                await send_menu(app, uid)
+                return
+            if (low.startswith("/стоп") or low.startswith("/stop")
+                    or text == "⏹ Закончить"):
                 app.dialog_states.pop(state_key, None)
                 await app.vk.send_message(uid, "Вышел из режима обращения.")
                 await send_menu(app, uid)
@@ -396,15 +418,7 @@ async def _on_dm_message(app, msg: IncomingMessage) -> None:
         if await _admin_commands(app, msg):
             return
         if low.startswith("/start") or low.startswith("/начать"):
-            with app.db.session() as s:
-                acc = repo.ensure_account(s, "vk", uid)
-                sub = repo.get_subscription(s, acc.id)
-                if sub is not None and sub.status == "stopped":
-                    given = profiles_bll.activate_subscription(s, app.cfg, acc, uid)
-                    reply = f"С возвращением! Карточек доставлено: {given}."
-                else:
-                    reply = None
-                s.commit()
+            reply = await _on_start(app, uid)
             if reply:
                 await app.vk.send_message(uid, reply)
             await send_menu(app, uid)
@@ -465,8 +479,12 @@ async def _menu_route(app, msg: IncomingMessage) -> bool:
                 await app.vk.send_message(uid, polls_bll.listing_text(s, app.cfg))
     elif t == "📩 Написать админам":
         app.dialog_states[("vk", uid)] = "appeal"
-        await app.vk.send_message(uid, "Пиши сообщение — перешлю админам клуба. "
-                                        "/стоп — выйти из режима.")
+        await send_reply_kb(
+            app, uid,
+            "Пиши сообщение — перешлю админам клуба.\n"
+            "⏹ Закончить, «Начать» или /start — выйти из режима.",
+            [["⏹ Закончить"]],
+        )
     elif t == "🔄 Синхронизация" and uid in app.admins_vk:
         lines = await profiles_bll.sync_people(app)
         app.membership_cache.clear()
