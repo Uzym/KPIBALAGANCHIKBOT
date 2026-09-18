@@ -4,3 +4,5 @@ __pycache__/
 .env
 data/
 .pytest_cache/
+# локальные инструменты с паролями VPS — в репозиторий не попадают
+local_tools/

@@ -51,6 +51,7 @@ async def scheduler_loop(app) -> None:
             if last_backup_day != today:
                 last_backup_day = today
                 _backup_db(app.cfg)
+                await _heartbeat(app)
             if last_cleanup_day != today:
                 last_cleanup_day = today
                 with app.db.session() as s:
@@ -89,6 +90,25 @@ def _backup_db(cfg: Config) -> None:
         log.info("бэкап БД: %s", dest.name)
     except Exception:
         log.exception("бэкап БД не удался")
+
+
+async def _heartbeat(app) -> None:
+    """Суточный health-check в чат логов (TECH_ADMIN_VK_PEER)."""
+    peer = app.cfg.tech_admin_vk_peer
+    if not peer:
+        return
+    try:
+        with app.db.session() as s:
+            stats = repo.subscription_stats(s)
+            s.commit()
+        parts = ", ".join(f"{k}: {v}" for k, v in sorted(stats.items())) or "подписок нет"
+        await app.vk.send_message(
+            peer,
+            f"🫀 Heartbeat: бот жив — {dt.datetime.now(app.cfg.tz):%d.%m %H:%M}.\n"
+            f"Подписки: {parts}",
+        )
+    except Exception as e:
+        log.warning("heartbeat failed: %s", e)
 
 
 async def _tick(app) -> None:

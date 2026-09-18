@@ -41,7 +41,7 @@ VK_TOKEN=...          # ключ сообщества (права: сообще�
 VK_GROUP_ID=...       # частное сообщество клуба
 TG_TOKEN=...          # бот от @BotFather
 ADMIN_VK_IDS=...      # необязательно: руководители сообщества и так админы
-TECH_ADMIN_VK_ID=...  # кому слать «бот запущен»
+TECH_ADMIN_VK_PEER=...  # чат «Логи» (peer_id): «бот запущен» + суточный heartbeat
 TZ=Europe/Moscow
 ```
 
@@ -81,8 +81,14 @@ docker compose exec kpibalaganchikbot python integration_check.py --messaging
 
 ## 6. Обновление
 
+Локальный помощник (Windows, в одну команду — коммит+пуш+SSH+пересборка):
+`powershell -File local_tools\release.ps1 "сообщение коммита"` (папка
+`local_tools/` в `.gitignore` — содержит пароль VPS, в гит не попадает).
+
+Вручную:
+
 ```bash
-cd /opt/club-bot
+cd /opt/club-bot/KPIBALAGANCHIKBOT
 git pull
 docker compose up -d --build   # пересоберёт образ и перезапустит
 docker compose logs -f --tail=50
@@ -122,7 +128,8 @@ docker compose start
 ## 9. Автозапуск и мониторинг
 
 - `restart: unless-stopped` + Docker daemon в автозагрузке — после ребута VPS бот поднимется сам.
-- О перезапусках узнаешь из сообщения «✅ Бот запущен» (`TECH_ADMIN_VK_ID`).
+- О перезапусках узнаешь из сообщения «✅ Бот запущен» и суточного
+  heartbeat-сообщения в чате «Логи» (`TECH_ADMIN_VK_PEER`).
 - Логи: `docker compose logs -f --tail=100`; heartbeat — раз в сутки бэкап-строка в логах.
 - Алерты о падении контейнера (опционально): Uptime Kuma / healthchecks.io
   пинг по результату `docker compose ps --format '{{.Health}}'`.

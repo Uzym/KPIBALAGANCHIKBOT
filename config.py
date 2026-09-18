@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 _ENV_KEYS = {
     "VK_TOKEN", "VK_GROUP_ID", "VK_API_VERSION", "TG_TOKEN",
     "DB_PATH", "TZ",
-    "ADMIN_VK_IDS", "TECH_ADMIN_VK_ID",
+    "ADMIN_VK_IDS", "TECH_ADMIN_VK_ID", "TECH_ADMIN_VK_PEER",
     "REMINDER_HOURS", "AUTOCLOSE_MODE", "AUTOCLOSE_MINUTES",
     "VK_STRIKE_FALLBACK", "POLL_MAX_OPTIONS", "ANNOUNCE_NOTICE_TTL_HOURS",
     "VK_WALL_LOG",
@@ -57,7 +57,7 @@ class Config:
     tz_name: str = "Europe/Moscow"
     # люди
     admin_vk_ids: list[int] = field(default_factory=list)  # дополнение к руководителям сообщества
-    tech_admin_vk_id: int = 0           # тех-уведомления (запуск/падения) — только ему
+    tech_admin_vk_peer: int = 0          # тех-уведомления (запуск/падения/heartbeat) — peer_id чата «Логи»
     # поведение
     reminder_hours: list[float] = field(default_factory=lambda: [24.0, 2.0])
     autoclose_mode: str = "at_start"      # at_start | before_start
@@ -107,7 +107,8 @@ class Config:
             db_path=raw.get("DB_PATH", "data/kpibalaganchikbot.db"),
             tz_name=raw.get("TZ", "Europe/Moscow"),
             admin_vk_ids=ints("ADMIN_VK_IDS"),
-            tech_admin_vk_id=int(raw.get("TECH_ADMIN_VK_ID", 0) or 0),
+            tech_admin_vk_peer=int(raw.get("TECH_ADMIN_VK_PEER",
+                                           raw.get("TECH_ADMIN_VK_ID", 0)) or 0),
             reminder_hours=floats("REMINDER_HOURS") or [24.0, 2.0],
             autoclose_mode=raw.get("AUTOCLOSE_MODE", "at_start"),
             autoclose_minutes=int(raw.get("AUTOCLOSE_MINUTES", 120) or 120),

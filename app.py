@@ -97,14 +97,15 @@ class App:
         await self.refresh_admins()
         for w in self.cfg.warnings:
             log.warning("конфиг: %s", w)
-        if self.cfg.tech_admin_vk_id:
+        if self.cfg.tech_admin_vk_peer:
             try:
                 await self.vk.send_message(
-                    self.cfg.tech_admin_vk_id,
-                    f"✅ Бот клуба запущен (v5). Время: {dt.datetime.now(self.cfg.tz):%d.%m %H:%M}.",
+                    self.cfg.tech_admin_vk_peer,
+                    f"✅ Бот клуба запущен (KPIBALAGANCHIKBOT v5). "
+                    f"Время: {dt.datetime.now(self.cfg.tz):%d.%m %H:%M}.",
                 )
             except Exception as e:
-                log.warning("tech-admin notice failed: %s", e)
+                log.warning("tech notice failed: %s", e)
         log.info(
             "Запуск: VK group=%s",
             self.cfg.vk_group_id,

@@ -32,6 +32,50 @@ def test_parse_poll_command():
     assert parsed["closes_at"].hour == 19
 
 
+def test_parse_poll_multiline():
+    cfg = Config()
+    parsed, err = polls_bll.parse_poll_command(
+        "/опрос Куда идём\nПарк\nКино\nДома\n[несколько]\n[до 20.09 19:00]",
+        cfg, NOW,
+    )
+    assert err is None
+    assert parsed["title"] == "Куда идём"
+    assert [o["text"] for o in parsed["options"]] == ["Парк", "Кино", "Дома"]
+    assert parsed["multichoice"] is True
+    assert parsed["closes_at"].hour == 19
+
+
+def test_parse_poll_multiline_minimal():
+    cfg = Config()
+    parsed, err = polls_bll.parse_poll_command("/опрос Кросс\nда\nнет", cfg, NOW)
+    assert err is None
+    assert parsed["title"] == "Кросс"
+    assert [o["text"] for o in parsed["options"]] == ["да", "нет"]
+    assert parsed["multichoice"] is False
+    assert parsed["closes_at"] is None
+    # «до» без скобок и без слова «несколько» — тоже работает
+    parsed, err = polls_bll.parse_poll_command(
+        "/опрос Кросс\nда\nнет\nдо 20.09 19:00", cfg, NOW)
+    assert err is None
+    assert parsed["closes_at"] is not None
+    # вариант-число не путается с модификатором
+    parsed, err = polls_bll.parse_poll_command("/опрос Число\n1\n2", cfg, NOW)
+    assert err is None
+    assert [o["text"] for o in parsed["options"]] == ["1", "2"]
+
+
+def test_parse_poll_multiline_errors():
+    cfg = Config()
+    _, err = polls_bll.parse_poll_command("/опрос Только вопрос", cfg, NOW)
+    assert err and "минимум 2" in err
+    _, err = polls_bll.parse_poll_command("/опрос Вопрос\nодин вариант", cfg, NOW)
+    assert err and "минимум 2" in err
+    _, err = polls_bll.parse_poll_command("/опрос Вопрос\nа\nб\nдо когда-нибудь", cfg, NOW)
+    assert err and "не поняла срок" in err
+    _, err = polls_bll.parse_poll_command("просто текст", cfg, NOW)
+    assert err and "начинаться с /опрос" in err
+
+
 def test_parse_poll_errors():
     cfg = Config()
     _, err = polls_bll.parse_poll_command("/создать опрос Только вопрос", cfg, NOW)

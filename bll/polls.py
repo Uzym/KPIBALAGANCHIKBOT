@@ -37,11 +37,48 @@ POLL_STATUS_LINES = {"closed": "🔒 Опрос закрыт", "cancelled": "❌
 
 
 def parse_poll_command(text: str, cfg: Config, now: dt.datetime) -> tuple[dict | None, str | None]:
-    """«/создать опрос Вопрос; вариант1; …; [несколько]; [до 20.09 19:00]»"""
-    raw = re.sub(r"^/(создать\s+опрос|опрос|poll)\s*", "", text.strip(),
-                 flags=re.IGNORECASE).strip()
-    if not raw:
-        return None, "пустой запрос: /создать опрос Вопрос; вариант1; вариант2; …"
+    """«/опрос Вопрос» + варианты построчно, [несколько], [до 20.09 19:00].
+
+    Старый однострочный формат через «;» тоже поддерживается.
+    """
+    m = re.match(r"^/(?:создать\s+опрос|опрос|poll)\s*(.*)$", text.strip(),
+                 flags=re.IGNORECASE | re.DOTALL)
+    if m is None:
+        return None, "команда должна начинаться с /опрос"
+    body = m.group(1).strip()
+    if not body:
+        return None, "пустой запрос: /опрос Вопрос\nвариант1\nвариант2\n…"
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    if len(lines) == 1 and ";" in lines[0]:
+        return _parse_poll_legacy(lines[0], cfg, now)
+
+    title = lines[0]
+    multichoice = False
+    closes_at: dt.datetime | None = None
+    options: list[dict] = []
+    for line in lines[1:]:
+        low = line.lower().strip("[]")  # допускаем «[несколько]» и просто «несколько»
+        if low in ("несколько", "multi", "несколько вариантов"):
+            multichoice = True
+        elif low.startswith("до "):
+            parsed = parse_when(low[3:].strip(), cfg.tz, now)
+            if parsed is None:
+                return None, f"не поняла срок «{line}»"
+            closes_at = parsed[0]
+        elif len(options) >= cfg.poll_max_options:
+            return None, f"вариантов не больше {cfg.poll_max_options}"
+        else:
+            options.append({"idx": len(options), "text": line})
+    if len(options) < 2:
+        return None, "нужно минимум 2 варианта"
+    return {
+        "title": title, "options": options,
+        "multichoice": multichoice, "closes_at": closes_at,
+    }, None
+
+
+def _parse_poll_legacy(raw: str, cfg: Config, now: dt.datetime) -> tuple[dict | None, str | None]:
+    """Старый формат: «Вопрос; вариант1; вариант2; …; [несколько]; [до 20.09 19:00]»."""
     parts = [p.strip() for p in raw.split(";") if p.strip()]
     if len(parts) < 3:
         return None, "нужны вопрос и минимум 2 варианта"
