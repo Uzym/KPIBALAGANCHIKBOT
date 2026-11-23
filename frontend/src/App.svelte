@@ -8,12 +8,15 @@
   import MemberFees from './pages/member/Fees.svelte';
   import MemberProfile from './pages/member/Profile.svelte';
   import MemberChat from './pages/member/Chat.svelte';
+  import MemberEventDetail from './pages/member/EventDetail.svelte';
 
   // ── страницы руководителя ──
   import AdminDashboard from './pages/admin/Dashboard.svelte';
   import AdminEvents from './pages/admin/Events.svelte';
   import AdminPeople from './pages/admin/People.svelte';
   import AdminFees from './pages/admin/Fees.svelte';
+  import AdminPersonDetail from './pages/admin/PersonDetail.svelte';
+  import AdminPolls from './pages/admin/Polls.svelte';
 
   const routes = {
     '/': null,
@@ -23,16 +26,22 @@
     '/member/fees': MemberFees,
     '/member/profile': MemberProfile,
     '/member/chat': MemberChat,
+    '/member/event': MemberEventDetail,
     '/admin': AdminDashboard,
     '/admin/dashboard': AdminDashboard,
     '/admin/events': AdminEvents,
     '/admin/people': AdminPeople,
     '/admin/fees': AdminFees,
+    '/admin/person': AdminPersonDetail,
+    '/admin/polls': AdminPolls,
   };
 
   let currentPath = '';
   $: currentPath = $path;
-  $: page = routes[currentPath] ?? null;
+  // точное совпадение или префикс для динамических маршрутов
+  $: page = routes[currentPath]
+    ?? (currentPath.startsWith('/member/event/') ? MemberEventDetail : null)
+    ?? (currentPath.startsWith('/admin/person/') ? AdminPersonDetail : null);
   $: isCover = currentPath === '/' || currentPath === '';
 </script>
 
@@ -40,7 +49,7 @@
   <!-- ═══ Обложка ═══ -->
   <main class="cover">
     <div>
-      <p class="eyebrow" style="justify-content:center;">КПИ · Сезон 2026/27</p>
+      <p class="eyebrow" style="justify-content:center;">Клуб по интересам</p>
       <h1 class="cover-title">Уютный <span class="it">Балаганчик</span></h1>
       <p class="cover-sub">События, запись, опросы, взносы — для участников и руководителей.</p>
     </div>

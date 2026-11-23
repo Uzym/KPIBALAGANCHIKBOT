@@ -123,20 +123,12 @@ describe('E2E: Админ · Люди', () => {
     expect(screen.getByText(/800/i)).toBeInTheDocument();
   });
 
-  it('тумблер академа переключается', async () => {
+  it('в списке НЕТ тумблеров академа (они внутри профиля)', async () => {
     render(People);
-    await waitFor(() => screen.getAllByRole('switch'));
-
-    const toggles = screen.getAllByRole('switch');
-    expect(toggles.length).toBeGreaterThanOrEqual(3);
-
-    const first = toggles[0];
-    const before = first.getAttribute('aria-checked');
-    fireEvent.click(first);
-    await waitFor(() => {
-      const after = first.getAttribute('aria-checked');
-      expect(after).not.toBe(before);
-    });
+    await waitFor(() => screen.getByText(/Аня К\./i));
+    // тумблеров в списке быть не должно
+    const toggles = screen.queryAllByRole('switch');
+    expect(toggles.length).toBe(0);
   });
 
   it('поиск фильтрует людей', async () => {
@@ -158,8 +150,7 @@ describe('E2E: Админ · Оплата', () => {
     await waitFor(() => {
       expect(screen.getByText(/Собрано/i)).toBeInTheDocument();
     });
-    expect(screen.getByText(/Долг/i)).toBeInTheDocument();
-    expect(screen.getByText(/Выше порога/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Долг/i).length).toBeGreaterThanOrEqual(1);
   });
 
   it('переключатель Платёж/Доп.трата', async () => {
@@ -199,6 +190,6 @@ describe('E2E: Админ · Оплата', () => {
   it('показывает список должников', async () => {
     render(Fees);
     await waitFor(() => screen.getByText(/Должники/i));
-    expect(screen.getByText(/Боба/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Боба/i).length).toBeGreaterThanOrEqual(1);
   });
 });

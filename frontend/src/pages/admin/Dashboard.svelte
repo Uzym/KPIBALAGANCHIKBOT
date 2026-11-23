@@ -71,21 +71,19 @@
       </div>
       {#each feeReports.filter(r => r.status === 'pending') as r (r.id)}
         <div class="confirm-card">
-          <div class="row-between" style="margin-bottom:8px;">
-            <div>
-              <span class="who">{r.name}</span>
-              <span class="meta" style="margin-left:8px;">{r.method} · {r.time}</span>
-            </div>
+          <div style="margin-bottom:8px;">
+            <span class="who">{r.name}</span>
+            <span class="meta" style="margin-left:8px;">{r.method} · {r.time}</span>
           </div>
-          <div class="row-between">
-            <div class="row" style="gap:6px;">
-              <input class="amount-edit" id="conf-{r.id}" value={r.amount} inputmode="numeric"
+          <div class="confirm-actions">
+            <div class="confirm-input-row">
+              <input class="amount-edit" type="number" min="1" step="1" id="conf-{r.id}" value={r.amount}
                      aria-label="Сумма от {r.name}">
               <span class="meta">₽</span>
             </div>
-            <div class="row" style="gap:6px;">
-              <button class="btn btn-primary btn-sm" onclick={() => confirmPay(r.id, true)}>Подтвердить</button>
-              <button class="btn btn-secondary btn-sm" onclick={() => confirmPay(r.id, false)}>Отклонить</button>
+            <div class="confirm-btn-row">
+              <button class="btn btn-primary btn-sm confirm-btn" onclick={() => confirmPay(r.id, true)}>Подтвердить</button>
+              <button class="btn btn-secondary btn-sm confirm-btn" onclick={() => confirmPay(r.id, false)}>Отклонить</button>
             </div>
           </div>
         </div>
@@ -139,5 +137,22 @@
   .confirm-card {
     border:1px solid var(--mustard); border-radius:var(--radius);
     padding:12px 14px; margin-bottom:8px; background:rgba(233,185,74,0.06);
+  }
+  .confirm-actions {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  }
+  .confirm-input-row { display: flex; align-items: center; gap: 4px; }
+  .confirm-btn-row { display: flex; gap: 8px; flex: 1; min-width: 0; }
+  .confirm-btn { flex: 1; min-width: 0; }
+  @media (max-width: 600px) {
+    .confirm-actions { flex-direction: column; align-items: stretch; }
+    .confirm-input-row { width: 100%; }
+    .confirm-input-row .amount-edit { width: 100%; flex: 1; }
+    .confirm-btn-row { width: 100%; }
+  }
+  @media (max-width: 480px) {
+    .confirm-actions { flex-direction: column; align-items: stretch; }
+    .confirm-actions .amount-edit { width: 100%; }
+    .confirm-actions .btn { flex: 1; }
   }
 </style>

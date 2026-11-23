@@ -116,10 +116,11 @@ class App:
         for w in self.cfg.warnings:
             log.warning("конфиг: %s", w)
         if self.cfg.panel_port:
-            log.info(
-                "веб-панель: файлы в frontend/dist/ (собери: cd frontend && npm run build); "
-                "порт %s зарезервирован", self.cfg.panel_port,
-            )
+            try:
+                from api.webpanel import start_webpanel
+                await start_webpanel(self, self.cfg.panel_port)
+            except Exception as e:
+                log.warning("веб-панель не стартовала: %s", e)
         if self.cfg.tech_admin_vk_peer:
             try:
                 await self.vk.send_message(

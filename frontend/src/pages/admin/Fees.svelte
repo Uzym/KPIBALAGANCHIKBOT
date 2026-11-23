@@ -4,27 +4,35 @@
 
   let stats = null;
   let debts = [];
+  let allPeople = [];
   let loading = true;
   let payType = 'pay';
-  let formData = { who: '', amount: 200, what: '' };
+  let formData = { whoId: '', amount: 200, what: '' };
 
   async function load() {
     stats = await api.getAdminStats();
-    debts = (await api.getPeople()).filter(p => p.debt > 0);
+    allPeople = await api.getPeople();
+    debts = allPeople.filter(p => p.debt > 0);
     loading = false;
   }
   load();
 
   async function submit(e) {
     e.preventDefault();
-    if (!formData.who || !formData.amount) return;
+    if (!formData.whoId || !formData.amount) return;
+    const person = allPeople.find(p => p.id === +formData.whoId);
+    if (!person) return;
     if (payType === 'pay') {
-      await api.recordPayment(formData.who, formData.amount, formData.what);
+      await api.recordPayment(person.name, formData.amount, formData.what, person.id);
     } else {
-      await api.recordCharge(formData.who, formData.amount, formData.what);
+      await api.recordCharge(person.name, formData.amount, formData.what, person.id);
     }
-    formData = { who: '', amount: 200, what: '' };
+    formData = { whoId: '', amount: 200, what: '' };
     await load();
+  }
+
+  async function reloadStats() {
+    stats = await api.getAdminStats();
   }
 </script>
 
@@ -36,7 +44,7 @@
   {#if loading}
     <div class="skeleton" style="height:200px;border-radius:18px;"></div>
   {:else}
-    <div class="stat-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:20px;">
+    <div class="stat-grid" style="margin-bottom:20px;">
       <div class="stat-card">
         <div class="label">Собрано</div>
         <div class="value">{stats.collected_month} ₽</div>
@@ -46,11 +54,6 @@
         <div class="label">Долг</div>
         <div class="value warn">{stats.total_debt} ₽</div>
         <div class="sub">у {debts.length} человек</div>
-      </div>
-      <div class="stat-card">
-        <div class="label">Выше порога</div>
-        <div class="value warn">{stats.debt_over_threshold}</div>
-        <div class="sub">админы уведомлены</div>
       </div>
     </div>
 
@@ -66,11 +69,16 @@
         <div class="grid-2">
           <div class="form-field">
             <label for="pay-who">Кто</label>
-            <input id="pay-who" required bind:value={formData.who} placeholder="Имя" autocomplete="off">
+            <select id="pay-who" required bind:value={formData.whoId}>
+              <option value="" disabled>Выбери человека…</option>
+              {#each allPeople as p (p.id)}
+                <option value={p.id}>{p.name}{#if p.debt > 0} — долг {p.debt} ₽{/if}</option>
+              {/each}
+            </select>
           </div>
           <div class="form-field">
             <label for="pay-amount">Сумма, ₽</label>
-            <input id="pay-amount" type="text" inputmode="numeric" pattern="[0-9]*" required bind:value={formData.amount}>
+            <input id="pay-amount" type="number" inputmode="numeric" min="1" step="1" required bind:value={formData.amount}>
           </div>
         </div>
         <div class="form-field">

@@ -7,6 +7,7 @@
   const items = [
     { id: '/admin', icon: 'grid', label: 'Дашборд' },
     { id: '/admin/events', icon: 'cal', label: 'События' },
+    { id: '/admin/polls', icon: 'chart', label: 'Опросы' },
     { id: '/admin/people', icon: 'users', label: 'Люди' },
     { id: '/admin/fees', icon: 'coin', label: 'Оплата' },
   ];
@@ -16,6 +17,7 @@
   function icon(svg) {
     if (svg === 'grid') return '<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>';
     if (svg === 'cal') return '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>';
+    if (svg === 'chart') return '<path d="M18 6L9 13l-3-2-4 3"/><path d="M2 20h20"/>';
     if (svg === 'users') return '<circle cx="9" cy="8" r="3.5"/><path d="M2 20c0-3.5 3-6.5 7-6.5s7 3 7 6.5"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14c3 0 6 2 6 6"/>';
     if (svg === 'coin') return '<circle cx="12" cy="12" r="9"/><path d="M12 7v10M15 9.5c0-1.4-1.3-2.5-3-2.5s-3 1-3 2.5c0 3 6 2 6 5 0 1.4-1.3 2.5-3 2.5s-3-1.1-3-2.5"/>';
     return '';
@@ -117,7 +119,7 @@
   @media (max-width: 768px) {
     .sidebar { display: none; }
     .tabbar {
-      display: grid; grid-template-columns: repeat(4, 1fr);
+      display: grid; grid-template-columns: repeat(5, 1fr);
       padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0));
       border-top: 1px solid var(--border-light);
       background: color-mix(in srgb, var(--surface) 92%, transparent);

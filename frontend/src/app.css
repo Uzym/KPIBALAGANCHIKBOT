@@ -4,6 +4,31 @@
    Портировано из HTML-прототипа.
    ═══════════════════════════════════════════════════════════════ */
 
+/* ─── Фильтр-чипы (глобально, используются на нескольких страницах) ─── */
+.filter-row {
+  display: flex; gap: 8px; margin-bottom: 14px;
+  overflow-x: auto; padding: 0 4px;
+  -webkit-overflow-scrolling: touch;
+}
+.filter-row::-webkit-scrollbar { display: none; }
+.filter-chip {
+  display: inline-flex; align-items: center;
+  padding: 7px 16px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--fg-mute);
+  font: inherit; font-size: 13px; font-weight: 500;
+  cursor: pointer; white-space: nowrap; flex-shrink: 0;
+  transition: all var(--dur) var(--ease);
+}
+.filter-chip:hover { border-color: var(--fg-mute); color: var(--fg); }
+.filter-chip.active {
+  background: var(--fg); color: var(--surface);
+  border-color: var(--fg); font-weight: 600;
+}
+.filter-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
 :root {
   --bg:            #efe7d2;
   --surface:       #f7f1de;
@@ -184,7 +209,7 @@ body::before {
 .toggle.on::after { transform: translateX(18px); }
 .toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-/* ─── RSVP-кнопки ─── */
+/* ─── RSVP-кнопки (цветные) ─── */
 .rsvp-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 14px; }
 .rsvp-btn {
   display: flex; flex-direction: column; align-items: center; gap: 2px;
@@ -197,8 +222,50 @@ body::before {
 .rsvp-btn .label { font-size: var(--fs-micro); font-weight: 600; color: var(--fg-soft); letter-spacing: 0.02em; }
 .rsvp-btn .count { font-family: var(--font-mono); font-size: 18px; font-weight: 600; color: var(--fg); }
 .rsvp-btn:hover { border-color: var(--fg-mute); }
-.rsvp-btn.selected { background: var(--accent); border-color: var(--accent); }
-.rsvp-btn.selected .label, .rsvp-btn.selected .count { color: #fff; }
+/* зелёный = Пойду */
+.rsvp-btn[data-vote="yes"] { border-color: rgba(110,116,72,0.4); }
+.rsvp-btn[data-vote="yes"].selected { background: var(--olive); border-color: var(--olive); }
+.rsvp-btn[data-vote="yes"].selected .label, .rsvp-btn[data-vote="yes"].selected .count { color: #fff; }
+/* жёлтый = Возможно */
+.rsvp-btn[data-vote="maybe"] { border-color: rgba(233,185,74,0.5); }
+.rsvp-btn[data-vote="maybe"].selected { background: var(--mustard); border-color: var(--mustard); }
+.rsvp-btn[data-vote="maybe"].selected .label, .rsvp-btn[data-vote="maybe"].selected .count { color: var(--fg); }
+/* красный = Не приду */
+.rsvp-btn[data-vote="no"] { border-color: rgba(237,111,92,0.4); }
+.rsvp-btn[data-vote="no"].selected { background: var(--accent); border-color: var(--accent); }
+.rsvp-btn[data-vote="no"].selected .label, .rsvp-btn[data-vote="no"].selected .count { color: #fff; }
+
+/* ─── Опрос: варианты ─── */
+.poll-option {
+  display: flex; align-items: center; width: 100%;
+  padding: 12px 14px; border: 1px solid var(--border-light);
+  border-radius: var(--radius); margin-bottom: 8px; cursor: pointer;
+  background: var(--surface); position: relative; overflow: hidden;
+  font: inherit; text-align: left; transition: border-color var(--dur) var(--ease);
+}
+.poll-option:disabled { cursor: default; opacity: 0.7; }
+.poll-option:not(:disabled):hover { border-color: var(--fg-mute); }
+.poll-option:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.poll-option .fill {
+  position: absolute; inset: 0; z-index: 0;
+  background: rgba(21,20,15,0.1);
+  transition: width 300ms var(--ease);
+}
+.poll-option.selected .fill { background: rgba(237,111,92,0.12); }
+.poll-option .opt-label { position: relative; z-index: 1; flex: 1; font-size: 14px; font-weight: 500; color: var(--fg); text-align: left; }
+.poll-option .opt-count { position: relative; z-index: 1; font-family: var(--font-mono); font-size: 14px; font-weight: 600; color: var(--fg-mute); }
+.poll-option.selected { border-color: var(--accent); }
+.poll-option.selected .opt-count { color: var(--accent-dark); }
+/* раскрытие кто проголосовал */
+.poll-voters {
+  padding: 8px 14px; margin: -4px 0 8px;
+  background: var(--surface-warm); border-radius: 0 0 var(--radius) var(--radius);
+  border: 1px solid var(--border-light); border-top: 0;
+  font-size: 13px; color: var(--fg-mute);
+}
+.poll-voters .voter { display: inline-block; margin: 2px 8px 2px 0; }
+.poll-voters .voter::after { content: '·'; margin-left: 8px; color: var(--fg-faint); }
+.poll-voters .voter:last-child::after { content: ''; }
 
 /* ─── Списки голосов ─── */
 .vote-group { padding: 12px 0; border-bottom: 1px solid var(--border-light); }
@@ -303,7 +370,7 @@ td { padding: 10px 14px; border-bottom: 1px solid var(--border-light); color: va
 tr:last-child td { border-bottom: 0; }
 tr:hover td { background: rgba(21,20,15,0.02); }
 
-/* ─── Стат-карточки (админ) ─── */
+/* ─── Стат-карточки (админ) — карусель на мобиле ─── */
 .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
 .stat-card {
   background: var(--surface); border: 1px solid var(--border-light);
@@ -313,6 +380,34 @@ tr:hover td { background: rgba(21,20,15,0.02); }
 .stat-card .value { font-family: var(--font-mono); font-size: 28px; font-weight: 600; letter-spacing: -0.02em; color: var(--fg); }
 .stat-card .value.warn { color: var(--accent-dark); }
 .stat-card .sub { font-size: 12px; color: var(--fg-mute); margin-top: 4px; }
+
+@media (max-width: 768px) {
+  .stat-grid {
+    display: flex; gap: 10px; overflow-x: auto; scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch; padding-bottom: 8px;
+  }
+  .stat-grid::-webkit-scrollbar { display: none; }
+  .stat-card {
+    min-width: 140px; scroll-snap-align: start; flex-shrink: 0;
+    padding: 14px;
+  }
+  /* мобильная адаптация форм */
+  .grid-2 { grid-template-columns: 1fr; }
+  /* таблицы → карточки */
+  .table-wrap { border: 0; background: transparent; }
+  table, thead, tbody, tr, td, th { display: block; }
+  thead { display: none; }
+  tr {
+    background: var(--surface); border: 1px solid var(--border-light);
+    border-radius: var(--radius); margin-bottom: 10px; padding: 8px 0;
+  }
+  td { border: 0; padding: 4px 14px; }
+  td::before {
+    content: attr(data-label); display: block;
+    font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-faint);
+  }
+}
 
 /* ─── Подтверждение платежей ─── */
 .confirm-card {

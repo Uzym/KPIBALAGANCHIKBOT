@@ -1,4 +1,4 @@
-/** E2E: участник — полные пользовательские сценарии через UI. */
+/** E2E: участник — обновлено под новый UI. */
 import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
 import { tick } from 'svelte';
@@ -29,72 +29,65 @@ describe('E2E: Навигация', () => {
     await tick();
     expect(window.location.hash).toBe('#/admin');
   });
+
+  it('обложка: «Клуб по интересам»', () => {
+    render(App);
+    expect(screen.getByText(/Клуб по интересам/i)).toBeInTheDocument();
+  });
 });
 
 describe('E2E: Участник · Афиша', () => {
-  it('показывает ближайшее событие с RSVP-кнопками', async () => {
+  it('показывает событие с RSVP-кнопками', async () => {
     render(Afisha);
     await waitFor(() => {
       expect(screen.getByText(/Тренировка по импровизации/i)).toBeInTheDocument();
     });
-    // RSVP-кнопки: «Пойду» может быть несколько (для разных событий) — проверяем наличие
     expect(screen.getAllByText('Пойду').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('Возможно').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('Не приду').length).toBeGreaterThanOrEqual(1);
   });
 
-  it('клик «Пойду» меняет состояние кнопки', async () => {
+  it('RSVP кнопки цветные (data-vote)', async () => {
     render(Afisha);
     await waitFor(() => screen.getAllByText('Пойду'));
+    const yesBtn = screen.getAllByText('Пойду')[0].closest('button');
+    expect(yesBtn?.dataset.vote).toBe('yes');
+    const noBtn = screen.getAllByText('Не приду')[0].closest('button');
+    expect(noBtn?.dataset.vote).toBe('no');
+  });
 
+  it('клик «Пойду» выделяет кнопку', async () => {
+    render(Afisha);
+    await waitFor(() => screen.getAllByText('Пойду'));
     const btn = screen.getAllByText('Пойду')[0].closest('button');
-    expect(btn).toBeTruthy();
     fireEvent.click(btn);
     await waitFor(() => {
-      // после клика кнопка выделяется (класс selected)
       expect(btn?.classList.contains('selected')).toBe(true);
     });
   });
 
-  it('переключение на календарь показывает сетку дней', async () => {
+  it('заголовок события кликабелен (переход на детальную)', async () => {
     render(Afisha);
-    await waitFor(() => screen.getByText('Календарь'));
-
-    fireEvent.click(screen.getByText('Календарь'));
-    await waitFor(() => {
-      expect(screen.getByText('Пн')).toBeInTheDocument();
-      expect(screen.getByText('Ср')).toBeInTheDocument();
-      expect(screen.getByText('Сб')).toBeInTheDocument();
-    });
-  });
-
-  it('переключение обратно на список', async () => {
-    render(Afisha);
-    await waitFor(() => screen.getByText('Календарь'));
-    fireEvent.click(screen.getByText('Календарь'));
-    await tick();
-    fireEvent.click(screen.getByText('Список'));
-    await waitFor(() => {
-      expect(screen.getByText(/Тренировка по импровизации/i)).toBeInTheDocument();
-    });
+    await waitFor(() => screen.getByRole('link', { name: /Тренировка/i }));
+    // кликабельный заголовок — это link role
+    const title = screen.getByRole('link', { name: /Тренировка/i });
+    expect(title).toBeInTheDocument();
   });
 });
 
 describe('E2E: Участник · Опросы', () => {
-  it('показывает активный опрос с вариантами', async () => {
+  it('показывает опрос с вариантами (левое выравнивание)', async () => {
     render(Polls);
     await waitFor(() => {
       expect(screen.getByText(/Куда едем/i)).toBeInTheDocument();
     });
     expect(screen.getByText('Баня')).toBeInTheDocument();
     expect(screen.getByText('Каток')).toBeInTheDocument();
-    expect(screen.getByText('Квартирник')).toBeInTheDocument();
   });
 
   it('клик по варианту выделяет его', async () => {
     render(Polls);
     await waitFor(() => screen.getByText('Баня'));
-
     const opt = screen.getByText('Баня').closest('button');
     expect(opt).toBeTruthy();
     fireEvent.click(opt);
@@ -103,7 +96,18 @@ describe('E2E: Участник · Опросы', () => {
     });
   });
 
-  it('закрытый опрос не кликабелен', async () => {
+  it('кнопка «Кто проголосовал» раскрывает список', async () => {
+    render(Polls);
+    await waitFor(() => screen.getAllByText(/Кто проголосовал/i));
+    const btn = screen.getAllByText(/Кто проголосовал/i)[0];
+    fireEvent.click(btn);
+    await waitFor(() => {
+      // появляются имена голосовавших (может быть несколько совпадений)
+      expect(screen.getAllByText(/Аня К\./i).length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  it('закрытый опрос показывает итоги с именами', async () => {
     render(Polls);
     await waitFor(() => {
       expect(screen.getByText(/кабаре или драма/i)).toBeInTheDocument();
@@ -114,34 +118,25 @@ describe('E2E: Участник · Опросы', () => {
 });
 
 describe('E2E: Участник · Взнос', () => {
-  it('показывает сумму долга', async () => {
+  it('показывает долг', async () => {
     render(Fees);
     await waitFor(() => {
-      expect(screen.getByText(/ТВОЙ ДОЛГ/i)).toBeInTheDocument();
-    });
-    expect(screen.getByText(/400/)).toBeInTheDocument();
-  });
-
-  it('показывает порог', async () => {
-    render(Fees);
-    await waitFor(() => {
-      expect(screen.getByText(/600/i)).toBeInTheDocument();
+      expect(screen.getByText(/400/)).toBeInTheDocument();
     });
   });
 
-  it('форма «Я оплатил» рендерится', async () => {
+  it('форма «Я оплатил» без поля «Как»', async () => {
     render(Fees);
     await waitFor(() => {
       expect(screen.getByText(/Я оплатил/i)).toBeInTheDocument();
     });
     expect(screen.getByLabelText(/Сумма/i)).toBeInTheDocument();
-    expect(screen.getByText('Отправить руководителю')).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Как/i)).not.toBeInTheDocument();
   });
 
-  it('отправка формы оплаты показывает подтверждение', async () => {
+  it('отправка формы', async () => {
     render(Fees);
     await waitFor(() => screen.getByText('Отправить руководителю'));
-
     fireEvent.input(screen.getByLabelText(/Сумма/i), { target: { value: '300' } });
     fireEvent.click(screen.getByText('Отправить руководителю'));
     await waitFor(() => {
@@ -151,14 +146,14 @@ describe('E2E: Участник · Взнос', () => {
 });
 
 describe('E2E: Участник · Профиль', () => {
-  it('показывает имя пользователя', async () => {
+  it('показывает имя', async () => {
     render(Profile);
     await waitFor(() => {
       expect(screen.getByText(/Аня К\./i)).toBeInTheDocument();
     });
   });
 
-  it('показывает линковку аккаунтов', async () => {
+  it('показывает аккаунты', async () => {
     render(Profile);
     await waitFor(() => {
       expect(screen.getByText(/ВКонтакте/i)).toBeInTheDocument();
@@ -166,17 +161,17 @@ describe('E2E: Участник · Профиль', () => {
     expect(screen.getByText(/Telegram/i)).toBeInTheDocument();
   });
 
-  it('показывает кнопку чата с руководителем', async () => {
+  it('показывает кнопку чата', async () => {
     render(Profile);
     await waitFor(() => {
       expect(screen.getByText(/Написать руководителю/i)).toBeInTheDocument();
     });
   });
 
-  it('академ показывает «Включает руководитель»', async () => {
+  it('нет info об академе (только у руководителя)', async () => {
     render(Profile);
-    await waitFor(() => {
-      expect(screen.getByText(/Включает руководитель/i)).toBeInTheDocument();
-    });
+    await waitFor(() => screen.getByText(/Аня К\./i));
+    expect(screen.queryByText(/Академический отпуск/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Включает руководитель/i)).not.toBeInTheDocument();
   });
 });

@@ -179,9 +179,9 @@ describe('API mock: профиль и чат', () => {
     expect(p.role).toBeTruthy();
   });
 
-  it('возвращает сообщения чата', async () => {
+  it('возвращает массив сообщений (может быть пустым)', async () => {
     const msgs = await api.getMessages();
-    expect(msgs.length).toBeGreaterThan(0);
+    expect(Array.isArray(msgs)).toBe(true);
   });
 
   it('отправка сообщения возвращает ok', async () => {

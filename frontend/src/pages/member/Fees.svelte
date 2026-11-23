@@ -17,7 +17,7 @@
   async function reportPayment(e) {
     e.preventDefault();
     if (!reportAmount) return;
-    await api.reportPayment(reportAmount, reportMethod);
+    await api.reportPayment(reportAmount, 'перевод');
     reportStatus = `Отправлено: ${reportAmount} ₽ (${reportMethod}). Ждите подтверждения.`;
   }
 </script>
@@ -43,18 +43,10 @@
       <article class="card">
         <p class="eyebrow" style="margin:0 0 10px;">Я оплатил</p>
         <form class="stack" style="gap:10px;" onsubmit={reportPayment}>
-          <div class="grid-2">
-            <div class="form-field">
-              <label for="fr-amount">Сумма, ₽</label>
-              <input id="fr-amount" type="text" inputmode="numeric" pattern="[0-9]*"
-                     required bind:value={reportAmount}>
-            </div>
-            <div class="form-field">
-              <label for="fr-how">Как</label>
-              <select id="fr-how" bind:value={reportMethod}>
-                <option>Перевод</option><option>Наличные</option>
-              </select>
-            </div>
+          <div class="form-field">
+            <label for="fr-amount">Сумма, ₽</label>
+            <input id="fr-amount" type="number" inputmode="numeric" min="1" step="1"
+                   required bind:value={reportAmount}>
           </div>
           <button type="submit" class="btn btn-primary btn-sm">Отправить руководителю</button>
         </form>

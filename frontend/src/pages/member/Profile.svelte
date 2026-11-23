@@ -59,13 +59,7 @@
           </div>
           <span class="tag status-open">Вкл</span>
         </div>
-        <div class="list-row" style="grid-template-columns:1fr auto;">
-          <div class="body">
-            <div class="title">Академический отпуск</div>
-            <div class="sub">Включает руководитель</div>
-          </div>
-          <span class="tag">Выкл</span>
-        </div>
+
       </article>
     </div>
   {/if}

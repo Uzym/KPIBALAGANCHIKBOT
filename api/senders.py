@@ -287,6 +287,8 @@ def _on_success(app, job, vm, mid: int | None) -> None:
 
 
 async def _on_error(app, job, vm, exc: Exception) -> None:
+    if vm is None:
+        vm = OutMessageVM(kind="unknown")
     desc = str(exc)
     code = getattr(exc, "code", None)
     log.warning("outbox %s %s->%s упал: %s", job.op, job.platform, job.chat_id, desc)
