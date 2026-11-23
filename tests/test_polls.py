@@ -104,7 +104,7 @@ def make_poll(tmp_path, cfg, command):
 def test_publish_fanout(tmp_path):
     cfg = Config()
     db, poll_id, counts = make_poll(tmp_path, cfg, "/создать опрос В; а; б")
-    assert counts == {"dm": 0}
+    assert counts == {"dm": 0, "chat": 0, "tg_chat": 0}
     with db.session() as s:
         kinds = {p.kind for p in repo.posts_for_content(s, "poll", poll_id)}
         assert kinds == set() or kinds  # без подписчиков карточек нет

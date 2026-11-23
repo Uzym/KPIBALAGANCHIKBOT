@@ -31,6 +31,7 @@ class MediaRef:
     url: str | None = None
     tg_file_id: str | None = None
     vk_attachment: str | None = None  # готовая строка attachment ("photo1_2")
+    local_path: str | None = None     # локальный файл (загрузка из панели)
     filename: str | None = None
     caption: str | None = None
 

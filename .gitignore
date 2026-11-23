@@ -1,8 +1,73 @@
-.venv/
+# ═══════════════════════════════════════════════════════
+# vk-tg-syncer · .gitignore
+# ═══════════════════════════════════════════════════════
+
+# ── Python ──
 __pycache__/
-*.pyc
-.env
-data/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+.eggs/
+
+# ── Виртуальные окружения ──
+.venv/
+venv/
+ENV/
+
+# ── IDE / редакторы ──
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Кеши и линтеры ──
 .pytest_cache/
-# локальные инструменты с паролями VPS — в репозиторий не попадают
+.mypy_cache/
+.ruff_cache/
+.tox/
+.coverage
+htmlcov/
+
+# ── Секреты (НИКОГДА в git) ──
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# ── База данных (живёт на хосте / в volume) ──
+data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite3
+
+# ── Экспорт / бэкапы ──
+*.xlsx
+*.csv
+backups/
+
+# ── NiceGUI (устарел, но кеши не нужны) ──
+.nicegui/
+
+# ── Frontend (Node.js) ──
+frontend/node_modules/
+frontend/dist/
+frontend/.svelte-kit/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ── Локальные инструменты (пароли VPS — не в git) ──
 local_tools/
+
+# ── Медиа (загруженные файлы бота) ──
+static/media/
+
+# ── OS junk ──
+.DS_Store
+Thumbs.db
+desktop.ini

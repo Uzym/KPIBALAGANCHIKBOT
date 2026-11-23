@@ -1,0 +1,103 @@
+<script>
+  import AdminShell from '../../components/AdminShell.svelte';
+  import { api } from '../../lib/api.js';
+
+  let stats = null;
+  let debts = [];
+  let loading = true;
+  let payType = 'pay';
+  let formData = { who: '', amount: 200, what: '' };
+
+  async function load() {
+    stats = await api.getAdminStats();
+    debts = (await api.getPeople()).filter(p => p.debt > 0);
+    loading = false;
+  }
+  load();
+
+  async function submit(e) {
+    e.preventDefault();
+    if (!formData.who || !formData.amount) return;
+    if (payType === 'pay') {
+      await api.recordPayment(formData.who, formData.amount, formData.what);
+    } else {
+      await api.recordCharge(formData.who, formData.amount, formData.what);
+    }
+    formData = { who: '', amount: 200, what: '' };
+    await load();
+  }
+</script>
+
+<AdminShell title="Оплата">
+  <div slot="actions">
+    <span class="meta">Взнос 200 ₽/мес · порог 600 ₽</span>
+  </div>
+
+  {#if loading}
+    <div class="skeleton" style="height:200px;border-radius:18px;"></div>
+  {:else}
+    <div class="stat-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:20px;">
+      <div class="stat-card">
+        <div class="label">Собрано</div>
+        <div class="value">{stats.collected_month} ₽</div>
+        <div class="sub">в ноябре</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Долг</div>
+        <div class="value warn">{stats.total_debt} ₽</div>
+        <div class="sub">у {debts.length} человек</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Выше порога</div>
+        <div class="value warn">{stats.debt_over_threshold}</div>
+        <div class="sub">админы уведомлены</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:20px;">
+      <p class="eyebrow" style="margin:0 0 14px;">{payType === 'pay' ? 'Внести платёж' : 'Начислить трату'}</p>
+      <form class="stack" style="gap:10px;" onsubmit={submit}>
+        <div class="row" style="gap:6px;">
+          <button type="button" class="btn btn-sm" class:btn-primary={payType === 'pay'} class:btn-secondary={payType !== 'pay'}
+                  style="flex:1;" onclick={() => payType = 'pay'}>Платёж</button>
+          <button type="button" class="btn btn-sm" class:btn-primary={payType === 'charge'} class:btn-secondary={payType !== 'charge'}
+                  style="flex:1;" onclick={() => payType = 'charge'}>Доп. трата</button>
+        </div>
+        <div class="grid-2">
+          <div class="form-field">
+            <label for="pay-who">Кто</label>
+            <input id="pay-who" required bind:value={formData.who} placeholder="Имя" autocomplete="off">
+          </div>
+          <div class="form-field">
+            <label for="pay-amount">Сумма, ₽</label>
+            <input id="pay-amount" type="text" inputmode="numeric" pattern="[0-9]*" required bind:value={formData.amount}>
+          </div>
+        </div>
+        <div class="form-field">
+          <label for="pay-what">{payType === 'pay' ? 'За что' : 'За что (трата)'}</label>
+          <input id="pay-what" bind:value={formData.what} placeholder={payType === 'pay' ? 'Наличные' : 'Реквизит, костюм…'}>
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm">
+          {payType === 'pay' ? 'Записать платёж' : 'Начислить трату'}
+        </button>
+      </form>
+    </div>
+
+    <div class="card">
+      <p class="eyebrow" style="margin:0 0 10px;">Должники</p>
+      {#each debts as d (d.name)}
+        <div class="list-row" style="grid-template-columns:1fr auto;">
+          <div class="body">
+            <div class="title">{d.name}</div>
+            <div class="sub">{d.akadem ? 'академ' : 'активен'}</div>
+          </div>
+          <span class="num" style="font-weight:600;color:{d.debt > 600 ? 'var(--accent-dark)' : 'var(--fg)'};">
+            {d.debt} ₽{d.debt > 600 ? ' · порог' : ''}
+          </span>
+        </div>
+      {:else}
+        <p class="meta" style="text-align:center;padding:16px;">Все оплатили</p>
+      {/each}
+    </div>
+  {/if}
+</AdminShell>

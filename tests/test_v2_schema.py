@@ -64,12 +64,13 @@ def test_posts_dm_dedup(tmp_path):
     with db.session() as s:
         admin = repo.ensure_account(s, "vk", 1)
         ev = repo.create_event(s, **_event_kw(admin.id))
-        repo.create_post(s, "event", ev.id, "dm_card", "vk", "100", account_id=admin.id)
+        p1 = repo.create_post(s, "event", ev.id, "dm_card", "vk", "100", account_id=admin.id)
         s.commit()
     with db.session() as s:
-        with pytest.raises(IntegrityError):
-            repo.create_post(s, "event", ev.id, "dm_card", "vk", "100", account_id=admin.id)
-            s.flush()
+        # повторное создание той же пары переиспользует пост (идемпотентно)
+        p2 = repo.create_post(s, "event", ev.id, "dm_card", "vk", "100", account_id=admin.id)
+        s.flush()
+        assert p2.id == p1.id
     # та же пара (content, kind), но другой подписчик — можно
     with db.session() as s:
         acc2 = repo.ensure_account(s, "vk", 3)

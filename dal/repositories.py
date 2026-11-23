@@ -4,7 +4,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, text, update
 
 from .database import now_utc
 from .models import (
@@ -14,8 +14,12 @@ from .models import (
     AppealMessage,
     Attendance,
     Content,
+    DmMessage,
     Event,
+    FeeEntry,
+    MetaKey,
     OutboxJob,
+    PanelSession,
     Person,
     Poll,
     PollVote,
@@ -112,6 +116,13 @@ def vk_account_for_person(s, person_id: int) -> Account | None:
     """ВК-аккаунт персоны — имена в списках берутся из ВК."""
     return s.scalar(
         select(Account).where(Account.person_id == person_id, Account.platform == "vk")
+    )
+
+
+def tg_account_for_person(s, person_id: int) -> Account | None:
+    """TG-аккаунт персоны (может быть и у «чистого» TG-участника)."""
+    return s.scalar(
+        select(Account).where(Account.person_id == person_id, Account.platform == "tg")
     )
 
 
@@ -363,6 +374,17 @@ def selected_poll_options_for_person(s, poll_id: int, account: Account) -> set[i
 
 def create_post(s, content_type: str, content_id: int, kind: str, platform: str,
                 chat_id: str, account_id: int | None = None) -> Post:
+    """Карточка/уведомление контента. Идемпотентно: существующий пост (даже
+    удалённый) переиспользуется и возвращается в pending — иначе UNIQUE-краш
+    при повторной публикации после удаления."""
+    existing = get_post_for(s, content_type, content_id, kind, account_id)
+    if existing is not None:
+        existing.status = "pending"
+        existing.vm_hash = None
+        existing.message_id = None
+        existing.conflict = 0
+        s.flush()
+        return existing
     p = Post(content_type=content_type, content_id=content_id, kind=kind, platform=platform,
              chat_id=str(chat_id), account_id=account_id, status="pending")
     s.add(p)
@@ -387,6 +409,17 @@ def get_post_for(s, content_type: str, content_id: int, kind: str,
     else:
         q = q.where(Post.account_id == account_id)
     return s.scalar(q)
+
+
+def get_chat_post(s, content_type: str, content_id: int,
+                  platform: str = "vk_chat") -> Post | None:
+    """Общая карточка контента в беседе/группе (одна на контент на платформу)."""
+    return s.scalar(
+        select(Post).where(
+            Post.content_type == content_type, Post.content_id == content_id,
+            Post.kind == "chat_card", Post.platform == platform,
+        )
+    )
 
 
 def find_post_by_message(s, platform: str, chat_id: str, message_id: int) -> Post | None:
@@ -632,6 +665,120 @@ def attendance_for_event(s, event_id: int) -> list[Attendance]:
     return list(s.scalars(select(Attendance).where(Attendance.event_id == event_id)))
 
 
+# --- meta (мемоизация) ----------------------------------------------------------------
+
+
+def get_meta(s, key: str) -> str | None:
+    row = s.get(MetaKey, key)
+    return row.value if row else None
+
+
+def set_meta(s, key: str, value: str) -> None:
+    row = s.get(MetaKey, key)
+    if row is None:
+        s.add(MetaKey(key=key, value=value))
+    else:
+        row.value = value
+
+
+# --- панель (вход по одобрению) -------------------------------------------------------
+
+
+def create_panel_session(s, *, ip: str = "", ua: str = "", label: str = "") -> PanelSession:
+    sess = PanelSession(ip=(ip or "")[:64], ua=(ua or "")[:300], label=(label or "")[:200])
+    s.add(sess)
+    s.flush()
+    return sess
+
+
+def get_panel_session(s, session_id: int) -> PanelSession | None:
+    return s.get(PanelSession, session_id)
+
+
+def panel_session_by_token_hash(s, token_hash: str) -> PanelSession | None:
+    return s.scalar(select(PanelSession).where(PanelSession.token_hash == token_hash))
+
+
+def recent_panel_sessions_from_ip(s, ip: str, since) -> list[PanelSession]:
+    return list(s.scalars(select(PanelSession).where(
+        PanelSession.ip == ip, PanelSession.status == "pending",
+        PanelSession.created_at >= since,
+    )))
+
+
+def panel_sessions_by_status(s, status: str) -> list[PanelSession]:
+    return list(s.scalars(
+        select(PanelSession).where(PanelSession.status == status)
+        .order_by(PanelSession.id.desc())
+    ))
+
+
+def all_persons(s) -> list[Person]:
+    return list(s.scalars(select(Person).order_by(Person.id)))
+
+
+# --- переписка (dm_messages) ---------------------------------------------------------
+
+
+def add_dm_message(s, platform: str, chat_id, direction: str, text: str,
+                   media: str | None = None) -> DmMessage:
+    m = DmMessage(platform=platform, chat_id=str(chat_id), direction=direction,
+                  text=text or "", media=media)
+    s.add(m)
+    s.flush()
+    return m
+
+
+def dm_threads(s, limit: int = 50) -> list[tuple[str, str, DmMessage]]:
+    """Треды переписок: (platform, chat_id, последнее сообщение), свежие сверху."""
+    rows = s.execute(
+        text(
+            "SELECT platform, chat_id, MAX(id) AS last_id FROM dm_messages "
+            "GROUP BY platform, chat_id ORDER BY last_id DESC LIMIT :lim"
+        ),
+        {"lim": limit},
+    ).all()
+    out = []
+    for platform, chat_id, last_id in rows:
+        m = s.get(DmMessage, last_id)
+        if m is not None:
+            out.append((platform, chat_id, m))
+    return out
+
+
+def dm_history(s, platform: str, chat_id, limit: int = 100) -> list[DmMessage]:
+    return list(s.scalars(
+        select(DmMessage)
+        .where(DmMessage.platform == platform, DmMessage.chat_id == str(chat_id))
+        .order_by(DmMessage.id.desc()).limit(limit)
+    ))[::-1]
+
+
+def attendance_history_for_person(s, person_id: int) -> list:
+    """Посещаемость персоны: список (Attendance, Event) по времени событий."""
+    out = list(s.execute(
+        select(Attendance, Event).join(Event, Attendance.event_id == Event.id)
+        .where(Attendance.person_id == person_id)
+    ).all())
+    acc_ids = [a.id for a in s.scalars(
+        select(Account).where(Account.person_id == person_id))]
+    if acc_ids:
+        out.extend(s.execute(
+            select(Attendance, Event).join(Event, Attendance.event_id == Event.id)
+            .where(Attendance.account_id.in_(acc_ids), Attendance.person_id.is_(None))
+        ).all())
+    out.sort(key=lambda r: r[1].starts_at or dt.datetime.min, reverse=True)
+    return out
+
+
+def pending_tg_requests(s) -> list[tuple[Subscription, Account]]:
+    return list(s.execute(
+        select(Subscription, Account)
+        .join(Account, Subscription.account_id == Account.id)
+        .where(Subscription.status == "pending", Account.platform == "tg")
+    ).all())
+
+
 # --- служебное ------------------------------------------------------------------------
 
 
@@ -642,3 +789,105 @@ def cancel_pending_jobs_for_post(s, post_id: int) -> None:
             OutboxJob.post_id == post_id, OutboxJob.status == "pending"
         ).values(status="failed", error="отменено: контент удалён")
     )
+
+
+# --- оплата ---------------------------------------------------------------------------
+
+
+def get_person(s, person_id: int) -> Person | None:
+    return s.get(Person, person_id)
+
+
+def add_fee_entry(s, person_id: int, kind: str, amount_rub: int,
+                  month: str | None, label: str,
+                  created_by: int | None = None) -> FeeEntry:
+    e = FeeEntry(person_id=person_id, kind=kind, amount_rub=amount_rub,
+                 month=month, label=label, created_by=created_by)
+    s.add(e)
+    return e
+
+
+def fee_debt_total(s, person_id: int) -> int:
+    return int(
+        s.execute(
+            select(func.coalesce(func.sum(FeeEntry.amount_rub), 0)).where(
+                FeeEntry.person_id == person_id
+            )
+        ).scalar_one()
+    )
+
+
+def has_fee_accrual(s, person_id: int, month: str) -> bool:
+    return s.execute(
+        select(FeeEntry.id).where(
+            FeeEntry.person_id == person_id,
+            FeeEntry.kind == "accrual",
+            FeeEntry.month == month,
+        ).limit(1)
+    ).first() is not None
+
+
+def recent_fee_entries(s, person_id: int, limit: int = 5) -> list[FeeEntry]:
+    return list(s.scalars(
+        select(FeeEntry).where(FeeEntry.person_id == person_id)
+        .order_by(FeeEntry.id.desc()).limit(limit)
+    ))
+
+
+def persons_with_debt(s) -> list[tuple[Person, int]]:
+    rows = s.execute(
+        select(Person, func.coalesce(func.sum(FeeEntry.amount_rub), 0))
+        .join(FeeEntry, FeeEntry.person_id == Person.id)
+        .group_by(Person.id)
+        .having(func.sum(FeeEntry.amount_rub) > 0)
+        .order_by(func.sum(FeeEntry.amount_rub).desc())
+    ).all()
+    return [(p, int(debt)) for p, debt in rows]
+
+
+def find_persons_by_ref(s, ref: str) -> list[Person]:
+    """Все кандидаты по ссылке «кто»: число (vk/tg id), логин TG (@ник), имя/часть.
+
+    Имена ищем в Python (SQLite lower() не знает кириллицу); клуб маленький,
+    перебор персон дешёвый. Результат без дублей, максимум 10.
+    """
+    ref = ref.strip().lstrip("@")
+    if not ref:
+        return []
+    if ref.isdigit():
+        out: list[Person] = []
+        for platform in ("vk", "tg"):
+            acc = get_account_by_platform_id(s, platform, int(ref))
+            if acc is not None and acc.person_id is not None:
+                p = s.get(Person, acc.person_id)
+                if p is not None and all(p2.id != p.id for p2 in out):
+                    out.append(p)
+        return out
+    ref_l = ref.casefold()
+    # точное совпадение логина TG (@ник)
+    tg_hits = [a for a in s.scalars(select(Account).where(Account.platform == "tg"))
+               if a.username and a.username.casefold() == ref_l]
+    if tg_hits:
+        out = []
+        for a in tg_hits:
+            if a.person_id is not None:
+                p = s.get(Person, a.person_id)
+                if p is not None and all(p2.id != p.id for p2 in out):
+                    out.append(p)
+        if out:
+            return out
+    # частичное совпадение имени (override или display_name)
+    out = []
+    for p in s.scalars(select(Person)):
+        name = (p.display_override or p.display_name or "").casefold()
+        if ref_l and ref_l in name:
+            out.append(p)
+            if len(out) >= 10:
+                break
+    return out
+
+
+def find_person_by_ref(s, ref: str) -> Person | None:
+    """Первый кандидат по ссылке (для совместимости); неоднозначность — на вызывающем."""
+    persons = find_persons_by_ref(s, ref)
+    return persons[0] if persons else None

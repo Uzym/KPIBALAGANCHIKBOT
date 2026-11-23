@@ -38,6 +38,8 @@ class Person(Base):
     __tablename__ = "persons"
     id: Mapped[int] = mapped_column(primary_key=True)
     display_name: Mapped[str] = mapped_column(String(200), default="")
+    display_override: Mapped[str | None] = mapped_column(String(200), nullable=True)  # имя от админа (/имя)
+    fee_alerted: Mapped[bool] = mapped_column(Boolean, default=False)  # оповещение о долге > порога уже слали
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now_utc)
 
 
@@ -60,15 +62,30 @@ class Account(Base):
 
 
 class Subscription(Base):
-    """Подписка на события/опросы. Только для VK (TG получает по линковке)."""
+    """Подписка на события/опросы. VK — по членству; TG — по одобрению заявки."""
     __tablename__ = "subscriptions"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), unique=True)
-    status: Mapped[str] = mapped_column(String(16), default="active")  # active|paused|blocked|stopped
+    status: Mapped[str] = mapped_column(String(16), default="active")  # active|paused|blocked|stopped|pending
+    banned: Mapped[bool] = mapped_column(Boolean, default=False)  # админ-бан (заявки не принимаются)
     send_announcements: Mapped[bool] = mapped_column(Boolean, default=True)
     validated_at: Mapped[dt.datetime | None] = mapped_column(DateTime, nullable=True)  # последняя проверка isMember
     updated_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now_utc, onupdate=now_utc)
+
+
+class FeeEntry(Base):
+    """Оплата: начисление (+) и платёж (−); долг = сумма записей персоны."""
+    __tablename__ = "fee_entries"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    person_id: Mapped[int] = mapped_column(ForeignKey("persons.id"))
+    kind: Mapped[str] = mapped_column(String(8))  # accrual | payment
+    amount_rub: Mapped[int] = mapped_column(Integer)  # accrual: +, payment: −
+    month: Mapped[str | None] = mapped_column(String(7), nullable=True)  # "2026-09" для accruals
+    label: Mapped[str] = mapped_column(String(300), default="")  # «за что»
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"))
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now_utc)
 
 
 class Event(Base):
@@ -241,3 +258,39 @@ class SchemaVersion(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class MetaKey(Base):
+    """Key-value хранилище (мемоизация админов и другие снапшоты)."""
+    __tablename__ = "app_meta"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, default="")
+
+
+class PanelSession(Base):
+    """Заявка/сессия входа в админ-панель: pending → approved/denied/revoked."""
+    __tablename__ = "panel_sessions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)  # sha256 токена
+    label: Mapped[str] = mapped_column(String(200), default="")  # подпись «кто ты»
+    ip: Mapped[str] = mapped_column(String(64), default="")
+    ua: Mapped[str] = mapped_column(String(300), default="")
+    status: Mapped[str] = mapped_column(String(16), default="pending")  # pending|approved|denied|revoked
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now_utc)
+    approved_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # vk id админа
+    approved_at: Mapped[dt.datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class DmMessage(Base):
+    """Сообщение переписки участника с руководителем (для чата в панели)."""
+    __tablename__ = "dm_messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    platform: Mapped[str] = mapped_column(String(8))  # vk | tg
+    chat_id: Mapped[str] = mapped_column(String(32))
+    direction: Mapped[str] = mapped_column(String(4))  # in | out
+    text: Mapped[str] = mapped_column(Text, default="")
+    media: Mapped[str | None] = mapped_column(Text)  # JSON [MediaRef]
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now_utc)

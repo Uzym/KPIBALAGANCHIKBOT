@@ -20,6 +20,10 @@ _ENV_KEYS = {
     "REMINDER_HOURS", "AUTOCLOSE_MODE", "AUTOCLOSE_MINUTES",
     "VK_STRIKE_FALLBACK", "POLL_MAX_OPTIONS", "ANNOUNCE_NOTICE_TTL_HOURS",
     "VK_WALL_LOG",
+    "FEE_MONTHLY_RUB", "DEBT_ALERT_LIMIT_RUB",
+    "READONLY_CHAT_PEERS", "CARD_CHAT_PEER",
+    "TG_CARD_CHAT_ID", "TG_READONLY_CHAT_ID",
+    "PANEL_PORT", "PANEL_SECRET",
     "SSL_VERIFY", "SSL_CA_BUNDLE",
 }
 
@@ -66,6 +70,17 @@ class Config:
     poll_max_options: int = 10
     announce_notice_ttl_hours: int = 48   # срок жизни уведомлений объявлений/изменений
     wall_log: bool = True                 # архив в сообщество: завершённые события/опросы и объявления постом на стену
+    # оплата
+    fee_monthly_rub: int = 200            # ежемесячный взнос (начисляется 1-го числа)
+    debt_alert_limit_rub: int = 600       # порог долга для оповещения админов
+    # чаты
+    readonly_chat_peers: list[int] = field(default_factory=list)  # только чтение: сообщения людей удаляются
+    card_chat_peer: int = 0               # беседа ВК с общими карточками (0 — карточки в ЛС)
+    tg_card_chat_id: int = 0              # TG-группа с общими карточками (0 — карточки в ЛС)
+    tg_readonly_chat_id: int = 0          # TG-группа только для чтения
+    # админ-панель (NiceGUI, слушает 127.0.0.1)
+    panel_port: int = 0                   # порт панели (0 — выключена)
+    panel_secret: str = ""                # резервный вход владельца (?key=...)
     # сеть
     ssl_verify: bool = True
     ssl_ca_bundle: str = ""
@@ -116,6 +131,14 @@ class Config:
             poll_max_options=int(raw.get("POLL_MAX_OPTIONS", 10) or 10),
             announce_notice_ttl_hours=int(raw.get("ANNOUNCE_NOTICE_TTL_HOURS", 48) or 48),
             wall_log=_bool(raw.get("VK_WALL_LOG", ""), True),
+            fee_monthly_rub=int(raw.get("FEE_MONTHLY_RUB", 200) or 200),
+            debt_alert_limit_rub=int(raw.get("DEBT_ALERT_LIMIT_RUB", 600) or 600),
+            readonly_chat_peers=ints("READONLY_CHAT_PEERS"),
+            card_chat_peer=int(raw.get("CARD_CHAT_PEER", 0) or 0),
+            tg_card_chat_id=int(raw.get("TG_CARD_CHAT_ID", 0) or 0),
+            tg_readonly_chat_id=int(raw.get("TG_READONLY_CHAT_ID", 0) or 0),
+            panel_port=int(raw.get("PANEL_PORT", 0) or 0),
+            panel_secret=raw.get("PANEL_SECRET", ""),
             ssl_verify=_bool(raw.get("SSL_VERIFY", ""), True),
             ssl_ca_bundle=raw.get("SSL_CA_BUNDLE", ""),
             warnings=[],

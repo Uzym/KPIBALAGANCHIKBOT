@@ -52,6 +52,28 @@ class TGClient:
             )
         return payload.get("result")
 
+    async def send_photo_file(self, chat_id: int, path: str,
+                              caption: str | None = None,
+                              reply_to: int | None = None) -> int:
+        """Отправить фото из локального файла (multipart sendPhoto)."""
+        session = await self._ensure_session()
+        form = aiohttp.FormData()
+        form.add_field("chat_id", str(chat_id))
+        if caption:
+            form.add_field("caption", caption)
+            form.add_field("parse_mode", "HTML")
+        if reply_to:
+            form.add_field("reply_parameters", str(reply_to))
+        with open(path, "rb") as f:
+            form.add_field("photo", f, filename="photo.jpg",
+                           content_type="image/jpeg")
+            async with session.post(f"{self.base}/sendPhoto", data=form) as resp:
+                payload = await resp.json(content_type=None)
+        if not payload.get("ok"):
+            raise TGApiError(payload.get("description", "unknown"),
+                             payload.get("error_code"), payload.get("parameters"))
+        return payload["result"]["message_id"]
+
     # --- long poll ---------------------------------------------------------------
 
     async def poll_forever(self, handler: Callable[[dict], Any]) -> None:

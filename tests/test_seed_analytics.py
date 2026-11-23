@@ -7,7 +7,7 @@ from config import Config
 from dal import repositories as repo
 from dal.database import Database
 
-from seed_demo import analytics, seed
+from scripts.seed_demo import analytics, seed
 
 
 def test_seed_and_analytics(tmp_path):

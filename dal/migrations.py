@@ -33,11 +33,80 @@ def _m2_auto_closed(conn: Connection) -> None:
     )
 
 
+def _m3_v6(conn: Connection) -> None:
+    conn.execute(text(
+        "CREATE TABLE IF NOT EXISTS fee_entries ("
+        "id INTEGER PRIMARY KEY, "
+        "person_id INTEGER NOT NULL REFERENCES persons(id), "
+        "kind VARCHAR(8) NOT NULL, "
+        "amount_rub INTEGER NOT NULL, "
+        "month VARCHAR(7), "
+        "label VARCHAR(300) NOT NULL DEFAULT '', "
+        "created_by INTEGER REFERENCES accounts(id), "
+        "created_at DATETIME NOT NULL)"
+    ))
+    add_column_if_missing(
+        conn, "persons", "display_override",
+        "ALTER TABLE persons ADD COLUMN display_override VARCHAR(200)",
+    )
+    add_column_if_missing(
+        conn, "persons", "fee_alerted",
+        "ALTER TABLE persons ADD COLUMN fee_alerted BOOLEAN NOT NULL DEFAULT 0",
+    )
+    add_column_if_missing(
+        conn, "subscriptions", "banned",
+        "ALTER TABLE subscriptions ADD COLUMN banned BOOLEAN NOT NULL DEFAULT 0",
+    )
+
+
+def _m4_meta(conn: Connection) -> None:
+    conn.execute(text(
+        "CREATE TABLE IF NOT EXISTS app_meta ("
+        "key VARCHAR(64) PRIMARY KEY, value TEXT NOT NULL DEFAULT '')"
+    ))
+
+
+def _m5_panel(conn: Connection) -> None:
+    conn.execute(text(
+        "CREATE TABLE IF NOT EXISTS panel_sessions ("
+        "id INTEGER PRIMARY KEY, "
+        "token_hash VARCHAR(64), "
+        "label VARCHAR(200) NOT NULL DEFAULT '', "
+        "ip VARCHAR(64) NOT NULL DEFAULT '', "
+        "ua VARCHAR(300) NOT NULL DEFAULT '', "
+        "status VARCHAR(16) NOT NULL DEFAULT 'pending', "
+        "created_at DATETIME NOT NULL, "
+        "approved_by BIGINT, "
+        "approved_at DATETIME)"
+    ))
+
+
+def _m6_dm_messages(conn: Connection) -> None:
+    conn.execute(text(
+        "CREATE TABLE IF NOT EXISTS dm_messages ("
+        "id INTEGER PRIMARY KEY, "
+        "platform VARCHAR(8) NOT NULL, "
+        "chat_id VARCHAR(32) NOT NULL, "
+        "direction VARCHAR(4) NOT NULL, "  # in | out
+        "text TEXT NOT NULL DEFAULT '', "
+        "media TEXT, "
+        "created_at DATETIME NOT NULL)"
+    ))
+    create_index_if_missing(
+        conn, "idx_dm_messages_chat",
+        "CREATE INDEX idx_dm_messages_chat ON dm_messages (platform, chat_id, id)",
+    )
+
+
 MIGRATIONS: list[tuple[int, str, Migration]] = [
     (2, "auto_closed (переоткрытие записи)", _m2_auto_closed),
+    (3, "v6: оплата/имена/заявки TG (fee_entries, display_override, fee_alerted, banned)", _m3_v6),
+    (4, "app_meta (мемоизация админов)", _m4_meta),
+    (5, "panel_sessions (вход в админ-панель по одобрению)", _m5_panel),
+    (6, "dm_messages (переписка с админом в панели)", _m6_dm_messages),
 ]
 
-CURRENT_VERSION = 2
+CURRENT_VERSION = 6
 
 
 def add_column_if_missing(conn: Connection, table: str, column: str, ddl: str) -> None:

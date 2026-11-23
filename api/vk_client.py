@@ -139,14 +139,17 @@ class VKClient:
         self, peer_id: int, conversation_message_id: int, text: str,
         keyboard: dict | None = None,
     ) -> int:
-        resp = await self.call(
-            "messages.edit",
-            peer_id=peer_id,
-            conversation_message_id=conversation_message_id,
-            message=text,
-            keyboard=json.dumps(keyboard, ensure_ascii=False) if keyboard else None,
-            keep_snippets=1,
-        )
+        params: dict[str, Any] = {"peer_id": peer_id, "message": text,
+                                  "keep_snippets": 1}
+        if keyboard is not None:
+            params["keyboard"] = json.dumps(keyboard, ensure_ascii=False)
+        if peer_id >= 2000000000:
+            # беседа: редактирование только по conversation_message_id
+            params["conversation_message_id"] = conversation_message_id
+        else:
+            # ЛС: cmid даёт error 15 (Access denied) — нужен message_id
+            params["message_id"] = conversation_message_id
+        resp = await self.call("messages.edit", **params)
         return int(resp)
 
     async def answer_event(self, event_id: str, user_id: int, peer_id: int, text: str) -> None:
@@ -163,10 +166,29 @@ class VKClient:
         except VKApiError as e:
             log.debug("toast не доставлен: %s", e)
 
-    async def delete_message(self, peer_id: int, conversation_message_id: int) -> None:
-        await self.call(
-            "messages.delete", message_ids=str(conversation_message_id), delete_for_all=1
-        )
+    async def resolve_cmid(self, peer_id: int, message_id: int) -> int:
+        """message id → conversation_message_id (для edit/delete в беседах)."""
+        try:
+            resp = await self.call("messages.getById", message_ids=str(message_id))
+            items = resp.get("items") or []
+            if items and items[0].get("conversation_message_id"):
+                return int(items[0]["conversation_message_id"])
+        except VKApiError as e:
+            log.debug("resolve_cmid failed: %s", e)
+        return message_id
+
+    async def delete_message(self, peer_id: int, conversation_message_id: int,
+                             in_chat: bool = False) -> None:
+        if in_chat:
+            await self.call(
+                "messages.delete", peer_id=peer_id,
+                cmids=str(conversation_message_id), delete_for_all=1,
+            )
+        else:
+            await self.call(
+                "messages.delete", message_ids=str(conversation_message_id),
+                delete_for_all=1,
+            )
 
     async def send_bulk(self, user_ids: list[int], text: str | None = None,
                         attachment: str | None = None) -> list[dict]:

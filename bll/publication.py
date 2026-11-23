@@ -17,12 +17,28 @@ from config import Config
 from .contracts import ButtonVM, OutMessageVM, vm_hash
 from .summary import VoteRow, build_event_vm
 
-ALL_POST_KINDS = ["dm_card"]
+ALL_POST_KINDS = ["dm_card", "chat_card"]
+
+
+def person_name(s, person_id: int) -> str | None:
+    """Имя персоны: переопределение админа (/имя) → имя ВК → имя персоны."""
+    p = repo.get_person(s, person_id)
+    if p is None:
+        return None
+    if p.display_override:
+        return p.display_override
+    vk = repo.vk_account_for_person(s, person_id)
+    if vk is not None:
+        return vk.display_name or str(vk.platform_user_id)
+    return p.display_name or None
 
 
 def display_for(s, account) -> tuple[str, str | None]:
-    """Имя для списков: у слинкованной персоны — имя ВК-аккаунта, без метки."""
+    """Имя для списков: у персоны — переопределённое имя или имя ВК, без метки."""
     if account.person_id:
+        name = person_name(s, account.person_id)
+        if name:
+            return name, None
         vk = repo.vk_account_for_person(s, account.person_id)
         if vk is not None:
             return vk.display_name or str(vk.platform_user_id), None
@@ -99,6 +115,8 @@ def announcement_section(s, cfg: Config, content_type: str, content_id: int) -> 
 
 
 def vm_for_post(s, cfg: Config, event: Event, kind: str) -> OutMessageVM:
+    if kind == "chat_card":
+        return chat_event_vm(s, cfg, event)
     vm = OutMessageVM(kind=kind, event=event_vm(s, cfg, event))
     section = announcement_section(s, cfg, "event", event.id)
     if section:
@@ -108,36 +126,96 @@ def vm_for_post(s, cfg: Config, event: Event, kind: str) -> OutMessageVM:
     return vm
 
 
+def chat_event_vm(s, cfg: Config, event: Event) -> OutMessageVM:
+    """Общая карточка события в беседе: счётчики на кнопках, списки в тексте."""
+    vm = event_vm(s, cfg, event)
+    yes = [e.name for e in vm.lists[0].entries if not e.struck_at]
+    maybe = [e.name for e in vm.lists[1].entries if not e.struck_at]
+    no = [e.name for e in vm.lists[2].entries if not e.struck_at]
+    lines = [f"📅 #{vm.event_id} «{vm.title}»", f"🕒 {vm.when_line}"]
+    if vm.place:
+        lines.append(f"📍 {vm.place}")
+    if vm.status_line:
+        lines.append(vm.status_line)
+    if vm.note:
+        lines.append(vm.note)
+    if yes:
+        lines.append(f"✅ Придут ({len(yes)}): {', '.join(yes)}")
+    if maybe:
+        lines.append(f"🤔 Возможно ({len(maybe)}): {', '.join(maybe)}")
+    if no:
+        lines.append(f"❌ Не придут ({len(no)}): {', '.join(no)}")
+    section = announcement_section(s, cfg, "event", event.id)
+    if section:
+        lines.append(section)
+    buttons: list[list[ButtonVM]] = []
+    if event.status == "active":
+        buttons = [
+            [
+                ButtonVM(action="vote", label=f"✅ Пойду ({len(yes)})", value="yes", event_id=event.id),
+                ButtonVM(action="vote", label=f"🤔 Возможно ({len(maybe)})", value="maybe", event_id=event.id),
+            ],
+            [
+                ButtonVM(action="vote", label=f"❌ Не пойду ({len(no)})", value="no", event_id=event.id),
+            ],
+        ]
+    return OutMessageVM(kind="chat_card", text="\n".join(lines), buttons=buttons)
+
+
 # --- fan-out ------------------------------------------------------------------
 
 
 def fan_out_new(s, cfg: Config, event: Event) -> dict[str, int]:
-    """Публикация события: карточки в ЛС (VK-подписчики + слинкованные TG) + напоминания."""
-    counts = {"dm": 0}
+    """Публикация события: общая карточка в беседу/группу (или ЛС-карточки) + TG."""
+    counts = {"dm": 0, "chat": 0, "tg_chat": 0}
 
-    for sub, acc in repo.active_subscriptions(s):
-        post = repo.create_post(s, "event", event.id, "dm_card", "vk",
-                                acc.platform_user_id, account_id=acc.id)
-        vm = vm_for_post(s, cfg, event, "dm_card")
+    if cfg.card_chat_peer:
+        post = repo.create_post(s, "event", event.id, "chat_card", "vk_chat",
+                                str(cfg.card_chat_peer), account_id=None)
+        vm = vm_for_post(s, cfg, event, "chat_card")
         repo.enqueue_job(
-            s, op="send", platform="vk", chat_id=acc.platform_user_id,
-            account_id=acc.id, post_id=post.id, view_model=vm.to_dict(),
+            s, op="send", platform="vk_chat", chat_id=str(cfg.card_chat_peer),
+            post_id=post.id, view_model=vm.to_dict(),
             idempotency_key=f"send:{post.id}",
         )
         repo.update_post(s, post.id, vm_hash=vm_hash(vm))
-        counts["dm"] += 1
+        counts["chat"] += 1
+    else:
+        for sub, acc in repo.active_subscriptions(s):
+            post = repo.create_post(s, "event", event.id, "dm_card", "vk",
+                                    acc.platform_user_id, account_id=acc.id)
+            vm = vm_for_post(s, cfg, event, "dm_card")
+            repo.enqueue_job(
+                s, op="send", platform="vk", chat_id=acc.platform_user_id,
+                account_id=acc.id, post_id=post.id, view_model=vm.to_dict(),
+                idempotency_key=f"send:{post.id}",
+            )
+            repo.update_post(s, post.id, vm_hash=vm_hash(vm))
+            counts["dm"] += 1
 
-    for acc in repo.tg_linked_accounts(s):
-        post = repo.create_post(s, "event", event.id, "dm_card", "tg",
-                                acc.platform_user_id, account_id=acc.id)
-        vm = vm_for_post(s, cfg, event, "dm_card")
+    if cfg.tg_card_chat_id:
+        post = repo.create_post(s, "event", event.id, "chat_card", "tg",
+                                str(cfg.tg_card_chat_id), account_id=None)
+        vm = vm_for_post(s, cfg, event, "chat_card")
         repo.enqueue_job(
-            s, op="send", platform="tg", chat_id=acc.platform_user_id,
-            account_id=acc.id, post_id=post.id, view_model=vm.to_dict(),
+            s, op="send", platform="tg", chat_id=str(cfg.tg_card_chat_id),
+            post_id=post.id, view_model=vm.to_dict(),
             idempotency_key=f"send:{post.id}",
         )
         repo.update_post(s, post.id, vm_hash=vm_hash(vm))
-        counts["dm"] += 1
+        counts["tg_chat"] = 1
+    else:
+        for acc in repo.tg_linked_accounts(s):
+            post = repo.create_post(s, "event", event.id, "dm_card", "tg",
+                                    acc.platform_user_id, account_id=acc.id)
+            vm = vm_for_post(s, cfg, event, "dm_card")
+            repo.enqueue_job(
+                s, op="send", platform="tg", chat_id=acc.platform_user_id,
+                account_id=acc.id, post_id=post.id, view_model=vm.to_dict(),
+                idempotency_key=f"send:{post.id}",
+            )
+            repo.update_post(s, post.id, vm_hash=vm_hash(vm))
+            counts["dm"] += 1
 
     _schedule_reminders(s, cfg, event)
     return counts
@@ -195,6 +273,30 @@ def ensure_dm_card(s, cfg: Config, event: Event, account_id: int, vk_user_id: in
     )
 
 
+def ensure_chat_card(s, cfg: Config, content_type: str, content_id: int,
+                     vm: OutMessageVM, platform: str = "vk_chat",
+                     chat_id: str | None = None) -> None:
+    """Общая карточка контента в беседе/группе (создание/восстановление)."""
+    target = chat_id or (str(cfg.card_chat_peer) if platform == "vk_chat"
+                         else str(cfg.tg_card_chat_id))
+    if not target or target == "0":
+        return
+    post = repo.get_chat_post(s, content_type, content_id, platform)
+    if post is None:
+        post = repo.create_post(s, content_type, content_id, "chat_card", platform,
+                                target, account_id=None)
+    if post.status == "blocked" or post.status == "ok":
+        return  # актуализацию делаем через refresh_content (edit)
+    if repo.get_pending_send_for_post(s, post.id) is None:
+        h = vm_hash(vm)
+        repo.enqueue_job(
+            s, op="send", platform=platform, chat_id=target,
+            post_id=post.id, view_model=vm.to_dict(),
+            idempotency_key=f"send:{post.id}:{h}",
+        )
+        repo.update_post(s, post.id, vm_hash=h, status="pending")
+
+
 def ensure_dm_cards_for_tg(s, cfg: Config, tg_account) -> None:
     """Все активные карточки для слинкованного TG-аккаунта (при линковке)."""
     for ev in repo.open_events(s):
@@ -222,7 +324,15 @@ def drop_dm_cards(s, account_id: int) -> None:
 
 def vm_for_content_post(s, cfg: Config, content_type: str, content_id: int,
                         post: Post) -> OutMessageVM | None:
-    """ViewModel карточки контента (событие или опрос; персональная)."""
+    """ViewModel карточки контента (событие или опрос; персональная или общая)."""
+    if post.kind == "chat_card":
+        if content_type == "poll":
+            from .polls import chat_poll_vm
+            return chat_poll_vm(s, cfg, content_id)
+        event = repo.get_event(s, content_id)
+        if event is None:
+            return None
+        return chat_event_vm(s, cfg, event)
     if content_type == "poll":
         from .polls import vm_for_poll_post
         return vm_for_poll_post(s, cfg, content_id, post.kind, post.account_id)
@@ -285,7 +395,7 @@ def refresh_content(s, cfg: Config, content_type: str, content_id: int) -> None:
 def notice_dm_tracked(
     s, cfg: Config, text: str, *, announcements_only: bool = False,
     content_type: str = "announcement", content_id: int = 0,
-    media: list | None = None,
+    media: list | None = None, skip_tg: bool = False,
 ) -> int:
     """Уведомление в ЛС с TTL-трекингом: пост dm_notice на подписчика.
 
@@ -351,7 +461,9 @@ def notice_dm_tracked(
                 idempotency_key=f"dm:{content_type}:{content_id}:{acc.id}:{h[:12]}",
             )
 
-    # TG: слинкованным, если уведомления включены
+    # TG: слинкованным, если уведомления включены (skip_tg — карточки живут в TG-группе)
+    if skip_tg:
+        return sent
     for acc in repo.tg_linked_accounts(s):
         if not acc.tg_dm_notifications:
             continue

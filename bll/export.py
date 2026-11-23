@@ -11,7 +11,7 @@ from dal import repositories as repo
 from dal.database import from_db
 
 from config import Config
-from .publication import event_vm
+from .publication import event_vm, person_name
 from .summary import fmt_when
 
 HEADER_FILL = PatternFill("solid", fgColor="4472C4")
@@ -48,9 +48,13 @@ def build_export_xlsx(s, cfg: Config) -> bytes:
         attended = []
         for att in repo.attendance_for_event(s, e.id):
             if att.person_id is not None:
-                vk = repo.vk_account_for_person(s, att.person_id)
-                if vk is not None:
-                    attended.append(vk.display_name or str(vk.platform_user_id))
+                name = person_name(s, att.person_id)
+                if name:
+                    attended.append(name)
+                else:
+                    vk = repo.vk_account_for_person(s, att.person_id)
+                    if vk is not None:
+                        attended.append(vk.display_name or str(vk.platform_user_id))
             elif att.account_id is not None:
                 acc = repo.get_account(s, att.account_id)
                 if acc is not None:
@@ -90,6 +94,35 @@ def build_export_xlsx(s, cfg: Config) -> bytes:
         for cell in row:
             cell.alignment = WRAP
     _autofit(ws2, {1: 6, 2: 26, 3: 18, 4: 12, 5: 22, 6: 9, 7: 40})
+
+    # --- Оплата ---
+    ws3 = wb.create_sheet("Оплата")
+    ws3.append(["Имя", "Долг, ₽", "Порог", "Операция", "Сумма, ₽", "За что", "Когда"])
+    from sqlalchemy import select
+    from dal.models import Person
+    persons = s.scalars(select(Person).order_by(Person.id)).all()
+    for p in persons:
+        debt = repo.fee_debt_total(s, p.id)
+        name = p.display_override or p.display_name or f"#{p.id}"
+        flag = "⚠️" if debt > cfg.debt_alert_limit_rub else ""
+        entries = repo.recent_fee_entries(s, p.id, limit=200)
+        if not entries:
+            ws3.append([name, debt, flag, "—", "—", "—", ""])
+            continue
+        for e in reversed(entries):
+            sign = "+" if e.amount_rub > 0 else "−"
+            when = from_db(e.created_at).astimezone(cfg.tz).strftime("%d.%m.%Y %H:%M")
+            ws3.append([
+                f"{name} {flag}".strip(), debt, flag,
+                "начисление" if e.kind == "accrual" else "платёж",
+                f"{sign}{abs(e.amount_rub)}", e.label or "",
+                when,
+            ])
+    _style_header(ws3)
+    for row in ws3.iter_rows(min_row=2):
+        for cell in row:
+            cell.alignment = WRAP
+    _autofit(ws3, {1: 22, 2: 10, 3: 7, 4: 12, 5: 10, 6: 30, 7: 16})
 
     buf = io.BytesIO()
     wb.save(buf)

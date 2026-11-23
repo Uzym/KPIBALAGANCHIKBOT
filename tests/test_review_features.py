@@ -115,6 +115,52 @@ def test_announcements_duplicated_to_wall(tmp_path):
         s.commit()
 
 
+def test_create_post_reuses_deleted_row(tmp_path):
+    """Повторная публикация после удаления не должна падать на UNIQUE."""
+    db, cfg, ev_id = setup_event(tmp_path)
+    with db.session() as s:
+        p1 = repo.create_post(s, "event", ev_id, "dm_card", "vk", "123", account_id=1)
+        s.commit()
+    with db.session() as s:
+        repo.update_post(s, p1.id, status="deleted")
+        s.commit()
+    with db.session() as s:
+        p2 = repo.create_post(s, "event", ev_id, "dm_card", "vk", "123", account_id=1)
+        assert p2.id == p1.id
+        assert p2.status == "pending"
+        s.commit()
+
+
+def test_dm_messages_roundtrip(tmp_path):
+    db = make_db(tmp_path)
+    with db.session() as s:
+        repo.add_dm_message(s, "vk", 100, "in", "привет")
+        repo.add_dm_message(s, "vk", 100, "out", "здорово")
+        repo.add_dm_message(s, "tg", 200, "in", "hi")
+        s.commit()
+    with db.session() as s:
+        threads = repo.dm_threads(s)
+        assert {t[1] for t in threads} == {"100", "200"}
+        hist = repo.dm_history(s, "vk", 100)
+        assert [m.text for m in hist] == ["привет", "здорово"]
+        s.commit()
+
+
+def test_attendance_history_for_person(tmp_path):
+    db, cfg, ev_id = setup_event(tmp_path)
+    with db.session() as s:
+        acc = repo.get_account_by_platform_id(s, "vk", 1)
+        person = repo.get_or_create_person(s, display_name="Глава")
+        acc.person_id = person.id
+        repo.toggle_attendance(s, ev_id, person_id=person.id, account_id=None)
+        s.commit()
+    with db.session() as s:
+        hist = repo.attendance_history_for_person(s, person.id)
+        assert len(hist) == 1
+        assert hist[0][1].id == ev_id
+        s.commit()
+
+
 def test_attendance_toggle_and_vm(tmp_path):
     db, cfg, ev_id = setup_event(tmp_path)
     with db.session() as s:

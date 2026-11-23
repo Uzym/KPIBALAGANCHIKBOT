@@ -177,6 +177,33 @@ def vm_for_poll_post(s, cfg: Config, poll_id: int, kind: str,
     return vm
 
 
+def chat_poll_vm(s, cfg: Config, poll_id: int) -> OutMessageVM | None:
+    """Общая карточка опроса в беседе: счётчики голосов на кнопках."""
+    poll = repo.get_poll(s, poll_id)
+    if poll is None:
+        return None
+    vm = poll_vm(s, cfg, poll)
+    counts = [len([e for e in o.entries if not e.struck_at]) for o in vm.options]
+    lines = [f"🗳 #{vm.poll_id} «{vm.title}»"]
+    if vm.closes_line:
+        lines.append(f"⏳ {vm.closes_line}")
+    if vm.status_line:
+        lines.append(vm.status_line)
+    for i, o in enumerate(vm.options):
+        lines.append(f"{i + 1}. {o.text} — {counts[i]}")
+    section = announcement_section(s, cfg, "poll", poll.id)
+    if section:
+        lines.append(section)
+    buttons: list[list[ButtonVM]] = []
+    if poll.status == "active":
+        buttons = [
+            [ButtonVM(action="poll", label=f"{i + 1}. {o.text} ({counts[i]})",
+                      value=str(i), event_id=poll.id)]
+            for i, o in enumerate(vm.options)
+        ]
+    return OutMessageVM(kind="chat_card", text="\n".join(lines), buttons=buttons)
+
+
 def preview_vm(s, cfg: Config, poll: Poll) -> OutMessageVM:
     vm = OutMessageVM(kind="preview", poll=poll_vm(s, cfg, poll))
     vm.text = (
@@ -202,31 +229,55 @@ def publish(s, cfg: Config, poll_id: int) -> dict[str, int] | str:
 
 
 def fan_out_new(s, cfg: Config, poll: Poll) -> dict[str, int]:
-    counts = {"dm": 0}
+    counts = {"dm": 0, "chat": 0, "tg_chat": 0}
 
-    for sub, acc in repo.active_subscriptions(s):
-        post = repo.create_post(s, "poll", poll.id, "dm_card", "vk",
-                                acc.platform_user_id, account_id=acc.id)
-        vm = vm_for_poll_post(s, cfg, poll.id, "dm_card", acc.id)
+    if cfg.card_chat_peer:
+        post = repo.create_post(s, "poll", poll.id, "chat_card", "vk_chat",
+                                str(cfg.card_chat_peer), account_id=None)
+        vm = chat_poll_vm(s, cfg, poll.id)
         repo.enqueue_job(
-            s, op="send", platform="vk", chat_id=acc.platform_user_id,
-            account_id=acc.id, post_id=post.id, view_model=vm.to_dict(),
+            s, op="send", platform="vk_chat", chat_id=str(cfg.card_chat_peer),
+            post_id=post.id, view_model=vm.to_dict(),
             idempotency_key=f"send:{post.id}",
         )
         repo.update_post(s, post.id, vm_hash=vm_hash(vm))
-        counts["dm"] += 1
+        counts["chat"] += 1
+    else:
+        for sub, acc in repo.active_subscriptions(s):
+            post = repo.create_post(s, "poll", poll.id, "dm_card", "vk",
+                                    acc.platform_user_id, account_id=acc.id)
+            vm = vm_for_poll_post(s, cfg, poll.id, "dm_card", acc.id)
+            repo.enqueue_job(
+                s, op="send", platform="vk", chat_id=acc.platform_user_id,
+                account_id=acc.id, post_id=post.id, view_model=vm.to_dict(),
+                idempotency_key=f"send:{post.id}",
+            )
+            repo.update_post(s, post.id, vm_hash=vm_hash(vm))
+            counts["dm"] += 1
 
-    for acc in repo.tg_linked_accounts(s):
-        post = repo.create_post(s, "poll", poll.id, "dm_card", "tg",
-                                acc.platform_user_id, account_id=acc.id)
-        vm = vm_for_poll_post(s, cfg, poll.id, "dm_card", acc.id)
+    if cfg.tg_card_chat_id:
+        post = repo.create_post(s, "poll", poll.id, "chat_card", "tg",
+                                str(cfg.tg_card_chat_id), account_id=None)
+        vm = chat_poll_vm(s, cfg, poll.id)
         repo.enqueue_job(
-            s, op="send", platform="tg", chat_id=acc.platform_user_id,
-            account_id=acc.id, post_id=post.id, view_model=vm.to_dict(),
+            s, op="send", platform="tg", chat_id=str(cfg.tg_card_chat_id),
+            post_id=post.id, view_model=vm.to_dict(),
             idempotency_key=f"send:{post.id}",
         )
         repo.update_post(s, post.id, vm_hash=vm_hash(vm))
-        counts["dm"] += 1
+        counts["tg_chat"] = 1
+    else:
+        for acc in repo.tg_linked_accounts(s):
+            post = repo.create_post(s, "poll", poll.id, "dm_card", "tg",
+                                    acc.platform_user_id, account_id=acc.id)
+            vm = vm_for_poll_post(s, cfg, poll.id, "dm_card", acc.id)
+            repo.enqueue_job(
+                s, op="send", platform="tg", chat_id=acc.platform_user_id,
+                account_id=acc.id, post_id=post.id, view_model=vm.to_dict(),
+                idempotency_key=f"send:{post.id}",
+            )
+            repo.update_post(s, post.id, vm_hash=vm_hash(vm))
+            counts["dm"] += 1
 
     return counts
 
@@ -517,7 +568,8 @@ def delete_poll(s, cfg: Config, poll_id: int) -> str | None:
     poll = repo.get_poll(s, poll_id)
     if poll is None:
         return "Опрос не найден."
-    for post in repo.posts_for_content(s, "poll", poll_id, ["dm_card", "dm_notice"]):
+    for post in repo.posts_for_content(s, "poll", poll_id,
+                                       ["dm_card", "dm_notice", "chat_card"]):
         repo.cancel_pending_jobs_for_post(s, post.id)
         if post.message_id and post.status == "ok":
             repo.enqueue_job(

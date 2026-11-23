@@ -51,6 +51,9 @@ async def _vk_attachments(app, media, peer_id: int) -> str | None:
         try:
             if m.vk_attachment:
                 atts.append(m.vk_attachment)
+            elif m.local_path:
+                with open(m.local_path, "rb") as f:
+                    atts.append(await app.vk.upload_photo(peer_id, f.read()))
             elif m.tg_file_id and m.kind == "photo":
                 url = await app.tg.file_url(m.tg_file_id)
                 if url:
@@ -115,6 +118,7 @@ async def _exec(app, job) -> None:
         with app.db.session() as s:
             post = s.get(Post, job.post_id)
 
+    vm = None  # может не инициализироваться при ошибке парсинга JSON
     try:
         if job.op == "delete":
             if post is None or not post.message_id:
@@ -122,6 +126,9 @@ async def _exec(app, job) -> None:
             if job.platform == "vk":
                 await VK_PACER.wait(("vk", job.chat_id))
                 await app.vk.delete_message(int(job.chat_id), post.message_id)
+            elif job.platform == "vk_chat":
+                await VK_PACER.wait(("vk", job.chat_id))
+                await app.vk.delete_message(int(job.chat_id), post.message_id, in_chat=True)
             else:
                 await TG_PACER.wait(("tg", job.chat_id))
                 await app.tg.delete_message(job.chat_id, post.message_id)
@@ -139,6 +146,11 @@ async def _exec(app, job) -> None:
                 text, kb = render_vk(vm, app.cfg.vk_strike_fallback)
                 await app.vk.edit_message(int(job.chat_id), post.message_id, text, kb)
                 mid = post.message_id
+            elif job.platform == "vk_chat":
+                await VK_PACER.wait(("vk", job.chat_id))
+                text, kb = render_vk(vm, app.cfg.vk_strike_fallback)
+                await app.vk.edit_message(int(job.chat_id), post.message_id, text, kb)
+                mid = post.message_id
             else:
                 await TG_PACER.wait(("tg", job.chat_id))
                 text, markup = render_tg(vm)
@@ -149,6 +161,12 @@ async def _exec(app, job) -> None:
                 await VK_PACER.wait(("vk_wall", job.chat_id))
                 text, _kb = render_vk(vm, app.cfg.vk_strike_fallback)
                 mid = await app.vk.wall_post(text)
+            elif job.platform == "vk_chat":
+                await VK_PACER.wait(("vk", job.chat_id))
+                text, kb = render_vk(vm, app.cfg.vk_strike_fallback)
+                mid = await app.vk.send_message(int(job.chat_id), text, kb)
+                # для edit/delete в беседе нужен conversation_message_id
+                mid = await app.vk.resolve_cmid(int(job.chat_id), mid)
             elif job.platform == "vk":
                 log.debug("exec %s: pacer…", job.id)
                 await VK_PACER.wait(("vk", job.chat_id))
@@ -164,7 +182,14 @@ async def _exec(app, job) -> None:
             else:
                 await TG_PACER.wait(("tg", job.chat_id))
                 text, markup = render_tg(vm)
-                if vm.media:
+                local_photo = next((m.local_path for m in vm.media
+                                    if m.local_path and m.kind == "photo"), None)
+                if local_photo:
+                    mid = await app.tg.send_photo_file(
+                        job.chat_id, local_photo, caption=text or None,
+                        reply_to=vm.reply_to,
+                    )
+                elif vm.media:
                     media = []
                     for m in vm.media:
                         if m.kind == "video_link":

@@ -18,6 +18,14 @@ from dal.database import Database
 log = logging.getLogger("app")
 
 
+def _load_stored_admins(s) -> set[int]:
+    """Последний успешно сохранённый список админов (мемоизация в БД)."""
+    stored = repo.get_meta(s, "admins_vk")
+    if not stored:
+        return set()
+    return {int(x) for x in stored.split(",") if x.strip().isdigit()}
+
+
 class App:
     def __init__(self, cfg: Config):
         self.cfg = cfg
@@ -50,6 +58,12 @@ class App:
             s.commit()
             if stuck:
                 log.warning("восстановлено застрявших заданий outbox: %d", stuck)
+            # мемоизация админов: если VK API при старте недоступен —
+            # работаем с последним успешно сохранённым списком
+            stored = _load_stored_admins(s)
+            if stored:
+                self.admins_vk |= stored
+                log.info("админы восстановлены из БД: %d", len(self.admins_vk))
         log.info("БД готова: %s", self.cfg.db_path)
 
     async def refresh_admins(self) -> list[str]:
@@ -68,6 +82,10 @@ class App:
         added = sorted(new_set - old)
         removed = sorted(old - new_set)
         self.admins_vk = new_set
+        # мемоизация: следующий старт (даже без API) начнёт с этого списка
+        with self.db.session() as s:
+            repo.set_meta(s, "admins_vk", ",".join(map(str, sorted(new_set))))
+            s.commit()
         lines = []
         if added:
             lines.append(f"админы +{len(added)}: {', '.join(map(str, added))}")
@@ -97,6 +115,11 @@ class App:
         await self.refresh_admins()
         for w in self.cfg.warnings:
             log.warning("конфиг: %s", w)
+        if self.cfg.panel_port:
+            log.info(
+                "веб-панель: файлы в frontend/dist/ (собери: cd frontend && npm run build); "
+                "порт %s зарезервирован", self.cfg.panel_port,
+            )
         if self.cfg.tech_admin_vk_peer:
             try:
                 await self.vk.send_message(

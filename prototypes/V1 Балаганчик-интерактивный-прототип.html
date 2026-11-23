@@ -1,0 +1,2470 @@
+<!doctype html>
+<html lang="ru" data-zcode-design>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Балаганчик — интерактивный прототип</title>
+<style>
+/* ═══════════════════════════════════════════════════════════════
+   Дизайн-система: «Афиша Балаганчика» (адаптация Atelier Zero)
+   Тёплая бумага, чернильный текст, коралловый занавес.
+   Все токены — CSS custom properties на :root.
+   ═══════════════════════════════════════════════════════════════ */
+:root {
+  --bg:            #efe7d2;
+  --surface:       #f7f1de;
+  --surface-warm:  #ece4cf;
+  --surface-dark:  #ddd2b6;
+  --fg:            #15140f;
+  --fg-soft:       #2a2620;
+  --fg-mute:       #5a5448;
+  --fg-faint:      #8b8676;
+  --border:        #c9bfa4;
+  --border-light:  #ddd2b6;
+  --accent:        #ed6f5c;
+  --accent-soft:   #f08e7c;
+  --accent-dark:   #b23b2e;
+  --mustard:       #e9b94a;
+  --olive:         #6e7448;
+  --danger:        #b23b2e;
+  --success:       #6e7448;
+
+  --font-display:  Georgia, 'Times New Roman', 'Playfair Display', serif;
+  --font-body:     'Segoe UI', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono:     Consolas, 'SF Mono', ui-monospace, Menlo, monospace;
+
+  --fs-h1: 26px; --fs-h2: 20px; --fs-h3: 16px;
+  --fs-body: 15px; --fs-small: 13px; --fs-meta: 12px; --fs-micro: 11px;
+
+  --radius: 12px; --radius-lg: 18px; --radius-pill: 999px;
+  --space: 8px;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --dur: 150ms;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; width: 100%; min-height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+/* бумажная текстура */
+body::before {
+  content: ''; position: fixed; inset: 0; z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(60% 80% at 50% 0%, rgba(106,92,56,0.06) 0%, transparent 60%),
+    radial-gradient(40% 60% at 80% 100%, rgba(106,92,56,0.04) 0%, transparent 50%);
+}
+body::after {
+  content: ''; position: fixed; inset: 0; z-index: 0;
+  pointer-events: none; opacity: 0.05; mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+#app { position: relative; z-index: 1; }
+
+/* ─── Утилиты ─────────────────────────────────────────────── */
+.pad { padding-inline: 20px; }
+.stack { display: flex; flex-direction: column; gap: 14px; }
+.row { display: flex; align-items: center; gap: 10px; }
+.row-between { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+
+.h1 { font-family: var(--font-display); font-size: var(--fs-h1); letter-spacing: -0.02em; line-height: 1.1; margin: 0; }
+.h2 { font-family: var(--font-display); font-size: var(--fs-h2); letter-spacing: -0.015em; line-height: 1.2; margin: 0; }
+.h3 { font-size: var(--fs-h3); font-weight: 600; line-height: 1.3; margin: 0; }
+.meta { font-family: var(--font-mono); font-size: var(--fs-meta); color: var(--fg-mute); letter-spacing: 0.01em; }
+.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.serif-it { font-family: var(--font-display); font-style: italic; }
+
+/* бровка (eyebrow) */
+.eyebrow {
+  font-size: var(--fs-micro); font-weight: 600; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--fg-mute);
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.eyebrow::before { content: ''; width: 18px; height: 1px; background: var(--accent); }
+
+/* римские номера секций */
+.roman {
+  font-family: var(--font-display); font-style: italic;
+  font-size: 14px; color: var(--accent);
+}
+
+/* ─── Карточки ────────────────────────────────────────────── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+}
+.card.clickable { cursor: pointer; transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease); }
+.card.clickable:hover { transform: translateY(-2px); box-shadow: 0 8px 20px -8px rgba(21,20,15,0.12); }
+.card.clickable:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ─── Кнопки ──────────────────────────────────────────────── */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 44px; padding: 10px 20px;
+  border-radius: var(--radius-pill); border: 0;
+  font: inherit; font-size: var(--fs-body); font-weight: 600;
+  cursor: pointer; text-decoration: none;
+  transition: transform var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.btn:active { transform: scale(0.97); }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: var(--accent-dark); }
+.btn-secondary { background: transparent; color: var(--fg); border: 1px solid var(--border); }
+.btn-secondary:hover { background: rgba(21,20,15,0.04); }
+.btn-ghost { background: transparent; color: var(--fg-mute); border: 0; }
+.btn-sm { min-height: 32px; padding: 6px 14px; font-size: var(--fs-small); }
+
+/* ─── Теги и пилюли ───────────────────────────────────────── */
+.tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 10px; border: 1px solid var(--border); border-radius: var(--radius-pill);
+  font-size: var(--fs-micro); color: var(--fg-mute); letter-spacing: 0.02em;
+}
+.tag.status-open { color: var(--olive); border-color: var(--olive); }
+.tag.status-closed { color: var(--fg-mute); }
+.tag.status-warn { color: var(--accent-dark); border-color: var(--mustard); }
+.pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 12px; border-radius: var(--radius-pill);
+  font-family: var(--font-mono); font-size: var(--fs-micro);
+  letter-spacing: 0.06em; text-transform: uppercase;
+}
+.pill.count { background: rgba(237,111,92,0.12); color: var(--accent-dark); }
+
+/* ─── SVG-иконки (модульные, 1.7 stroke) ──────────────────── */
+.ic { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+.ic-sm { width: 16px; height: 16px; }
+
+/* ─── Обложка (выбор режима) ──────────────────────────────── */
+.cover {
+  min-height: 100vh; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 40px; padding: 40px 20px;
+}
+.cover h1 {
+  font-family: var(--font-display); font-size: clamp(40px, 8vw, 72px);
+  letter-spacing: -0.03em; line-height: 1.05; margin: 0; text-align: center;
+}
+.cover h1 .it { font-style: italic; color: var(--accent); }
+.cover .sub { max-width: 48ch; text-align: center; color: var(--fg-mute); margin: 0; }
+.cover-modes { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; }
+.mode-btn {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
+  padding: 24px 32px; min-width: 240px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); cursor: pointer; text-align: left;
+  transition: transform var(--dur) var(--ease);
+  font: inherit; color: var(--fg);
+}
+.mode-btn:hover { transform: translateY(-3px); box-shadow: 0 12px 30px -10px rgba(21,20,15,0.15); }
+.mode-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mode-btn .label { font-family: var(--font-display); font-size: 24px; font-weight: 600; }
+.mode-btn .desc { color: var(--fg-mute); font-size: var(--fs-small); }
+
+/* ─── Телефонный экран (участник) ─────────────────────────── */
+.phone-stage {
+  min-height: 100vh; display: flex; flex-direction: column;
+  align-items: center; padding: 24px 16px;
+}
+.phone-topbar {
+  width: min(390px, 100%); display: flex; align-items: center; justify-content: space-between;
+  padding: 0 4px 12px;
+}
+.phone-topbar .back {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: none; border: 0; cursor: pointer;
+  font: inherit; font-size: var(--fs-small); color: var(--fg-mute);
+  padding: 8px; border-radius: var(--radius-pill); text-decoration: none;
+}
+.phone-topbar .back:hover { color: var(--fg); background: rgba(21,20,15,0.05); }
+.phone-topbar .back:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.screen {
+  position: relative; width: min(390px, 100vw); height: min(844px, calc(100vh - 80px));
+  background: var(--bg); border-radius: 44px; overflow: hidden;
+  display: flex; flex-direction: column;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.06), 0 28px 60px -12px rgba(0,0,0,0.18);
+}
+.statusbar {
+  flex: 0 0 54px; padding: 14px 26px 0;
+  display: flex; align-items: flex-start; justify-content: space-between;
+  font-size: 15px; font-weight: 600; color: var(--fg); letter-spacing: -0.01em;
+}
+.statusbar .right { display: inline-flex; align-items: center; gap: 6px; }
+.statusbar svg { width: 17px; height: 11px; fill: var(--fg); }
+.statusbar .battery { width: 25px; }
+.content {
+  flex: 1 1 auto; overflow-y: auto; overflow-x: hidden;
+  -webkit-overflow-scrolling: touch; padding: 8px 0 28px;
+}
+.content::-webkit-scrollbar { display: none; }
+.home-indicator { flex: 0 0 28px; position: relative; }
+.home-indicator::after {
+  content: ''; position: absolute; left: 50%; bottom: 8px;
+  transform: translateX(-50%); width: 134px; height: 5px;
+  background: var(--fg); border-radius: 999px; opacity: 0.85;
+}
+
+/* ─── Таббар ──────────────────────────────────────────────── */
+.tabbar {
+  flex: 0 0 auto; display: grid;
+  grid-template-columns: repeat(var(--tabs, 4), 1fr);
+  padding: 8px 8px 0;
+  border-top: 1px solid var(--border-light);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(20px);
+}
+.tab {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 8px 0; color: var(--fg-mute);
+  font-size: 10px; letter-spacing: 0.02em;
+  background: none; border: 0; cursor: pointer; font-family: inherit;
+}
+.tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 8px; }
+.tab.active { color: var(--accent); }
+.tab.active .ic { stroke-width: 2; }
+.tab .ic { width: 22px; height: 22px; }
+
+/* ─── Заголовок экрана ────────────────────────────────────── */
+.header {
+  padding: 8px 20px 12px;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+.header h1 { font-family: var(--font-display); font-size: var(--fs-h1); letter-spacing: -0.02em; line-height: 1.1; margin: 0; }
+.greeting {
+  font-family: var(--font-mono); font-size: var(--fs-micro);
+  letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--fg-mute); margin: 0 0 4px;
+}
+
+/* ─── Карточка события (RSVP hero) ────────────────────────── */
+.event-card { padding: 20px; }
+.event-card .act {
+  font-family: var(--font-display); font-style: italic;
+  font-size: 14px; color: var(--accent); margin-bottom: 4px;
+}
+.event-card .title {
+  font-family: var(--font-display); font-size: 22px; font-weight: 700;
+  letter-spacing: -0.02em; line-height: 1.15; margin: 0 0 6px;
+}
+.event-card .when { color: var(--fg-mute); font-size: var(--fs-small); display: flex; align-items: center; gap: 6px; }
+.event-card .place { color: var(--fg-mute); font-size: var(--fs-small); display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+
+/* RSVP кнопки со счётчиками */
+.rsvp-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 14px; }
+.rsvp-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  min-height: 52px; padding: 8px 4px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); cursor: pointer; font: inherit;
+  transition: all var(--dur) var(--ease);
+}
+.rsvp-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.rsvp-btn .label { font-size: var(--fs-micro); font-weight: 600; color: var(--fg-soft); letter-spacing: 0.02em; }
+.rsvp-btn .count { font-family: var(--font-mono); font-size: 18px; font-weight: 600; color: var(--fg); }
+.rsvp-btn:hover { border-color: var(--fg-mute); }
+.rsvp-btn.selected { background: var(--accent); border-color: var(--accent); }
+.rsvp-btn.selected .label, .rsvp-btn.selected .count { color: #fff; }
+.rsvp-btn[data-vote="yes"].selected { background: var(--accent); border-color: var(--accent); }
+.rsvp-btn[data-vote="no"] { border-color: var(--border); }
+
+/* ─── Список голосов ──────────────────────────────────────── */
+.vote-lists { margin-top: 16px; border-top: 1px solid var(--border-light); }
+.vote-group { padding: 12px 0; border-bottom: 1px solid var(--border-light); }
+.vote-group:last-child { border-bottom: 0; }
+.vote-group .group-label {
+  font-family: var(--font-mono); font-size: var(--fs-micro);
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--fg-mute); margin-bottom: 6px;
+}
+.vote-group .names { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: var(--fs-small); color: var(--fg-soft); }
+.vote-group .name-tag { color: var(--fg-faint); font-family: var(--font-mono); font-size: var(--fs-micro); }
+.vote-group .struck { text-decoration: line-through; text-decoration-thickness: 1.5px; color: var(--fg-faint); }
+.vote-group .struck-note { font-family: var(--font-mono); font-size: var(--fs-micro); color: var(--fg-faint); font-style: italic; }
+
+/* ─── Строка списка ───────────────────────────────────────── */
+.list-row {
+  display: grid; grid-template-columns: 40px 1fr auto; align-items: center; gap: 12px;
+  padding: 12px 0; border-top: 1px solid var(--border-light);
+}
+.list-row:first-child { border-top: 0; }
+.avatar {
+  width: 40px; height: 40px; border-radius: 50%;
+  background: linear-gradient(135deg, rgba(237,111,92,0.15), rgba(21,20,15,0.06)), var(--surface);
+  border: 1px solid var(--border-light);
+  display: grid; place-items: center;
+  font-family: var(--font-display); font-size: 16px; font-style: italic; color: var(--fg-mute);
+}
+.list-row .body .title { font-size: 15px; font-weight: 500; line-height: 1.25; }
+.list-row .body .sub { color: var(--fg-mute); font-size: 13px; line-height: 1.3; margin-top: 2px; }
+
+/* ─── Прогресс (долг/порог) ───────────────────────────────── */
+.progress { height: 6px; background: var(--surface-dark); border-radius: 999px; overflow: hidden; }
+.progress > span { display: block; height: 100%; background: var(--accent); border-radius: 999px; transition: width 300ms var(--ease); }
+.progress > span.warn { background: var(--mustard); }
+.progress > span.over { background: var(--danger); }
+
+/* ─── Чекбокс (посещаемость) ──────────────────────────────── */
+.check {
+  width: 24px; height: 24px; border: 1.5px solid var(--border); border-radius: 6px;
+  display: grid; place-items: center; cursor: pointer;
+  transition: all var(--dur) var(--ease); flex-shrink: 0;
+  background: var(--surface);
+}
+.check:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.check.on { background: var(--olive); border-color: var(--olive); }
+.check.on svg { width: 14px; height: 14px; stroke: #fff; stroke-width: 2.5; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ─── Toast ───────────────────────────────────────────────── */
+#toast-zone {
+  position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+  z-index: 100; display: flex; flex-direction: column; gap: 8px; align-items: center;
+  pointer-events: none;
+}
+.toast {
+  padding: 10px 24px; border-radius: var(--radius-pill);
+  background: var(--fg); color: var(--surface);
+  font-size: var(--fs-small); font-weight: 500;
+  box-shadow: 0 8px 20px -6px rgba(21,20,15,0.3);
+  animation: toast-in 200ms var(--ease);
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── Переключатель экранов ───────────────────────────────── */
+[data-screen] { display: none; }
+[data-screen].active { display: flex; flex-direction: column; }
+
+/* ─── Десктоп-режим (админ) ───────────────────────────────── */
+.desktop-stage {
+  min-height: 100vh; display: flex; flex-direction: column; align-items: center;
+  padding: 24px 16px;
+}
+.desktop-frame {
+  width: min(1100px, 100%);
+  background: var(--bg);
+  border-radius: 24px; overflow: hidden;
+  display: flex; flex-direction: column;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.06), 0 28px 60px -12px rgba(0,0,0,0.18);
+  min-height: 720px;
+}
+.desktop-body { display: flex; flex: 1; overflow: hidden; }
+
+/* sidebar */
+.sidebar {
+  width: 220px; flex-shrink: 0;
+  border-right: 1px solid var(--border-light);
+  padding: 20px 12px;
+  display: flex; flex-direction: column; gap: 4px;
+  background: var(--surface-warm);
+}
+.sidebar .brand {
+  font-family: var(--font-display); font-style: italic;
+  font-size: 18px; font-weight: 600; padding: 0 12px 16px;
+  display: flex; align-items: center; gap: 8px;
+}
+.nav-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; border-radius: 10px;
+  color: var(--fg-mute); font-size: 14px; font-weight: 500;
+  cursor: pointer; border: 0; background: none; text-align: left; width: 100%;
+  font-family: inherit; text-decoration: none;
+  transition: all var(--dur) var(--ease);
+}
+.nav-item:hover { color: var(--fg); background: rgba(21,20,15,0.04); }
+.nav-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.nav-item.active { color: var(--accent-dark); background: rgba(237,111,92,0.1); font-weight: 600; }
+.nav-item .ic { width: 18px; height: 18px; }
+.sidebar .spacer { flex: 1; }
+.sidebar .exit {
+  padding: 10px 14px; color: var(--fg-faint); font-size: var(--fs-small);
+  cursor: pointer; border: 0; background: none; text-align: left;
+  display: flex; align-items: center; gap: 10px; font-family: inherit;
+}
+.sidebar .exit:hover { color: var(--fg); }
+
+/* main area */
+.main { flex: 1; overflow-y: auto; padding: 28px 32px; }
+.main-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+.main-header h1 { font-family: var(--font-display); font-size: 28px; font-weight: 700; letter-spacing: -0.025em; margin: 0; }
+.main-header .actions { display: flex; gap: 10px; }
+
+/* admin data-screen switching */
+.desktop-screen { display: none; }
+.desktop-screen.active { display: block; }
+
+/* ─── Админ: таблицы ──────────────────────────────────────── */
+.table-wrap { overflow-x: auto; border: 1px solid var(--border-light); border-radius: var(--radius); background: var(--surface); }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th {
+  text-align: left; padding: 10px 14px;
+  font-family: var(--font-mono); font-size: var(--fs-micro);
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--fg-mute); border-bottom: 1px solid var(--border-light);
+  font-weight: 500;
+}
+td { padding: 10px 14px; border-bottom: 1px solid var(--border-light); color: var(--fg-soft); }
+tr:last-child td { border-bottom: 0; }
+tr:hover td { background: rgba(21,20,15,0.02); }
+
+/* ─── Админ: stat-карточки ────────────────────────────────── */
+.stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
+.stat-card {
+  background: var(--surface); border: 1px solid var(--border-light);
+  border-radius: var(--radius); padding: 16px 18px;
+}
+.stat-card .label { font-family: var(--font-mono); font-size: var(--fs-micro); letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-mute); margin-bottom: 8px; }
+.stat-card .value { font-family: var(--font-mono); font-size: 28px; font-weight: 600; letter-spacing: -0.02em; color: var(--fg); }
+.stat-card .value.warn { color: var(--accent-dark); }
+.stat-card .sub { font-size: 12px; color: var(--fg-mute); margin-top: 4px; }
+
+/* ─── Админ: форма создания ───────────────────────────────── */
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.form-field { display: flex; flex-direction: column; gap: 6px; }
+.form-field.full { grid-column: 1 / -1; }
+.form-field label { font-size: var(--fs-small); font-weight: 500; color: var(--fg-soft); }
+.form-field input, .form-field textarea, .form-field select {
+  padding: 10px 14px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface); color: var(--fg); font: inherit; font-size: 14px;
+  min-height: 44px;
+}
+.form-field input:focus-visible, .form-field textarea:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 0; border-color: var(--accent);
+}
+.form-field input:user-invalid { border-color: var(--danger); }
+.form-field .field-error { color: var(--danger); font-size: var(--fs-micro); display: none; }
+.form-field input:user-invalid + .field-error { display: block; }
+.form-field .hint { color: var(--fg-faint); font-size: var(--fs-micro); }
+
+/* ─── Банер ошибки ────────────────────────────────────────── */
+.error-banner {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 16px; margin-bottom: 16px;
+  background: rgba(178,59,46,0.08); border: 1px solid rgba(178,59,46,0.2);
+  border-radius: var(--radius); font-size: var(--fs-small); color: var(--fg-soft);
+}
+.error-banner .ic { color: var(--danger); }
+
+/* ─── Скелетон загрузки ───────────────────────────────────── */
+.skeleton {
+  background: linear-gradient(90deg, var(--surface-dark) 25%, var(--surface-warm) 50%, var(--surface-dark) 75%);
+  background-size: 200% 100%; border-radius: 6px;
+  animation: shimmer 1.2s infinite;
+}
+@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+/* ─── Пустое состояние ────────────────────────────────────── */
+.empty-state {
+  text-align: center; padding: 48px 24px;
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+}
+.empty-state .icon-circle {
+  width: 64px; height: 64px; border-radius: 50%;
+  border: 1.5px dashed var(--border);
+  display: grid; place-items: center; color: var(--fg-faint);
+}
+.empty-state h3 { font-family: var(--font-display); font-style: italic; font-size: 20px; font-weight: 500; margin: 0; }
+.empty-state p { color: var(--fg-mute); font-size: var(--fs-small); margin: 0; max-width: 32ch; }
+
+/* ─── Опрос: бары ─────────────────────────────────────────── */
+.poll-option {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px; border: 1px solid var(--border-light);
+  border-radius: var(--radius); margin-bottom: 8px;
+  cursor: pointer; transition: border-color var(--dur) var(--ease);
+  background: var(--surface);
+  position: relative; overflow: hidden;
+}
+.poll-option:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.poll-option:hover { border-color: var(--fg-mute); }
+.poll-option .fill {
+  position: absolute; inset: 0;
+  background: rgba(237,111,92,0.08); z-index: 0;
+  transition: width 300ms var(--ease);
+}
+.poll-option > * { position: relative; z-index: 1; }
+.poll-option .opt-label { flex: 1; font-size: 14px; font-weight: 500; }
+.poll-option .opt-count { font-family: var(--font-mono); font-size: 14px; font-weight: 600; color: var(--fg-mute); }
+.poll-option.selected { border-color: var(--accent); }
+.poll-option.selected .opt-count { color: var(--accent-dark); }
+
+/* ─── Примечание к данным ─────────────────────────────────── */
+.demo-note {
+  position: fixed; bottom: 12px; right: 16px;
+  font-family: var(--font-mono); font-size: 10px;
+  color: var(--fg-faint); letter-spacing: 0.04em;
+  z-index: 50;
+}
+
+
+/* ─── Календарь ─────────────────────────────────────────── */
+.cal-switch { display: flex; gap: 0; border: 1px solid var(--border); border-radius: var(--radius-pill); overflow: hidden; }
+.cal-switch button {
+  padding: 6px 16px; border: 0; background: transparent; font: inherit;
+  font-size: 12px; font-weight: 500; color: var(--fg-mute); cursor: pointer;
+}
+.cal-switch button.active { background: var(--fg); color: var(--surface); }
+.cal-switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.cal-dow { text-align: center; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-faint); padding: 4px 0; }
+.cal-day {
+  aspect-ratio: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  border-radius: 10px; font-size: 14px; color: var(--fg-soft); position: relative;
+  cursor: default; min-height: 40px;
+}
+.cal-day.other { color: var(--fg-faint); opacity: 0.4; }
+.cal-day.today { background: var(--fg); color: var(--surface); font-weight: 600; }
+.cal-day.has-event { cursor: pointer; font-weight: 600; color: var(--fg); }
+.cal-day.has-event::after {
+  content: ''; position: absolute; bottom: 5px; left: 50%; transform: translateX(-50%);
+  width: 5px; height: 5px; border-radius: 50%; background: var(--accent);
+}
+.cal-day.has-event.today::after { background: var(--accent-soft); }
+.cal-day:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.cal-month-nav { display: flex; align-items: center; justify-content: space-between; padding: 0 4px; }
+.cal-month-nav button {
+  width: 32px; height: 32px; border: 1px solid var(--border); border-radius: 50%;
+  background: var(--surface); color: var(--fg); cursor: pointer; display: grid; place-items: center;
+}
+.cal-month-nav button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* ─── Чат ───────────────────────────────────────────────── */
+.chat-list { display: flex; flex-direction: column; }
+.chat-msg {
+  max-width: 78%; padding: 10px 14px; border-radius: 16px;
+  font-size: 14px; line-height: 1.4; margin-bottom: 6px;
+}
+.chat-msg.out { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
+.chat-msg.in { align-self: flex-start; background: var(--surface); color: var(--fg-soft); border: 1px solid var(--border-light); border-bottom-left-radius: 4px; }
+.chat-msg .time { font-family: var(--font-mono); font-size: 10px; opacity: 0.6; margin-top: 4px; }
+.chat-input {
+  display: flex; gap: 8px; padding: 10px 16px;
+  border-top: 1px solid var(--border-light); background: var(--surface);
+}
+.chat-input input {
+  flex: 1; padding: 10px 16px; border: 1px solid var(--border); border-radius: var(--radius-pill);
+  background: var(--bg); font: inherit; font-size: 14px; min-height: 40px;
+}
+.chat-input input:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
+.chat-input button {
+  width: 40px; height: 40px; border-radius: 50%; border: 0;
+  background: var(--accent); color: #fff; cursor: pointer; display: grid; place-items: center;
+  flex-shrink: 0;
+}
+.chat-input button:focus-visible { outline: 2px solid var(--accent-dark); outline-offset: 2px; }
+
+/* ─── Подтверждение платежей (админ) ────────────────────── */
+.confirm-card {
+  border: 1px solid var(--mustard); border-radius: var(--radius);
+  padding: 12px 14px; margin-bottom: 8px; background: rgba(233,185,74,0.06);
+}
+.confirm-card .who { font-weight: 600; font-size: 14px; }
+.confirm-card .amount { font-family: var(--font-mono); font-weight: 600; font-size: 16px; }
+.confirm-card input.amount-edit {
+  width: 80px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px;
+  font-family: var(--font-mono); font-size: 14px; background: var(--surface); color: var(--fg);
+}
+/* ─── Тумблер ───────────────────────────────────────────── */
+.toggle {
+  width: 44px; height: 26px; border-radius: 999px; border: 0;
+  background: var(--surface-dark); position: relative; cursor: pointer;
+  transition: background var(--dur) var(--ease); flex-shrink: 0; padding: 0;
+}
+.toggle::after {
+  content: ''; position: absolute; top: 3px; left: 3px;
+  width: 20px; height: 20px; border-radius: 50%; background: #fff;
+  transition: transform var(--dur) var(--ease);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+.toggle.on { background: var(--olive); }
+.toggle.on::after { transform: translateX(18px); }
+.toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ─── Reduced motion ──────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+</style>
+</head>
+<body>
+<div id="app">
+
+<!-- ═══════════════ ОБЛОЖКА: ВЫБОР РЕЖИМА ═══════════════ -->
+<div data-screen="cover" class="active cover" data-od-id="cover">
+  <div>
+    <p class="eyebrow" style="justify-content: center;">КПИ · Сезон 2026/27</p>
+    <h1>Уютный <span class="it">Балаганчик</span></h1>
+    <p class="sub" style="margin-top: 16px;">
+      Прототип веб-интерфейса клуба: события, запись, опросы, взносы —
+      для участников и руководителей.
+    </p>
+  </div>
+  <div class="cover-modes">
+    <button class="mode-btn" data-go="member" data-od-id="mode-member">
+      <span class="roman">I.</span>
+      <span class="label">Участник</span>
+      <span class="desc">Афиша, запись на тренировки, опросы, взнос</span>
+    </button>
+    <button class="mode-btn" data-go="admin" data-od-id="mode-admin">
+      <span class="roman">II.</span>
+      <span class="label">Руководитель</span>
+      <span class="desc">Десктоп: события, люди, оплата, заявки, дашборд</span>
+    </button>
+    <button class="mode-btn" data-go="admin-mobile" data-od-id="mode-admin-mobile">
+      <span class="roman">III.</span>
+      <span class="label">Руководитель · мобильный</span>
+      <span class="desc">Телефон: те же разделы, таббар вместо сайдбара</span>
+    </button>
+  </div>
+</div>
+
+<!-- ═══════════════ РЕЖИМ УЧАСТНИКА (мобильный) ═══════════════ -->
+<div data-screen="member" class="phone-stage" data-od-id="member-stage">
+  <div class="phone-topbar">
+    <button class="back" data-go="cover">
+      <svg class="ic ic-sm" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+      Обложка
+    </button>
+    <span class="meta">Участник</span>
+    <span class="meta">9:41</span>
+  </div>
+
+  <div class="screen" data-od-id="member-screen">
+    <!-- статусбар -->
+    <div class="statusbar" aria-hidden="true">
+      <span class="num">9:41</span>
+      <span class="right">
+        <svg viewBox="0 0 17 11"><rect x="0" y="7" width="3" height="4" rx="0.6"/><rect x="4" y="5" width="3" height="6" rx="0.6"/><rect x="8" y="3" width="3" height="8" rx="0.6"/><rect x="12" y="0" width="3" height="11" rx="0.6"/></svg>
+        <svg viewBox="0 0 17 11"><path d="M8.5 1.5C5.5 1.5 2.7 2.6 0.5 4.6L2 6.1C3.8 4.5 6.1 3.6 8.5 3.6c2.4 0 4.7 0.9 6.5 2.5l1.5-1.5c-2.2-2-5-3.1-8-3.1zM3.5 7.6L5 9.1c1-0.9 2.2-1.4 3.5-1.4 1.3 0 2.5 0.5 3.5 1.4l1.5-1.5c-1.4-1.3-3.1-2-5-2-1.9 0-3.6 0.7-5 2zM6.5 10.6l2 2 2-2c-0.5-0.5-1.2-0.8-2-0.8s-1.5 0.3-2 0.8z"/></svg>
+        <svg class="battery" viewBox="0 0 25 11"><rect x="0.5" y="0.5" width="21" height="10" rx="2.5" fill="none" stroke="currentColor" stroke-opacity="0.45"/><rect x="22" y="3.5" width="1.5" height="4" rx="0.4" fill="currentColor" fill-opacity="0.45"/><rect x="2" y="2" width="18" height="7" rx="1.4"/></svg>
+      </span>
+    </div>
+
+    <!-- контент: переключаемые подэкраны участника -->
+    <main class="content" id="member-content" data-od-id="member-content">
+
+      <!-- ── Подэкран: Афиша ── -->
+      <section data-mscreen="afisha" class="active" data-od-id="afisha">
+        <div class="header">
+          <div>
+            <p class="greeting">Воскресенье · 23 ноября</p>
+            <h1>Афиша</h1>
+          </div>
+          <div class="cal-switch" role="tablist" aria-label="Вид афиши">
+            <button class="active" id="view-list" onclick="Member.setView('list')" role="tab" aria-selected="true">Список</button>
+            <button id="view-cal" onclick="Member.setView('cal')" role="tab" aria-selected="false">Календарь</button>
+          </div>
+        </div>
+
+        <!-- календарный вид -->
+        <div class="pad stack" style="gap: 10px; display: none;" id="afisha-calendar" data-od-id="afisha-cal">
+          <div class="cal-month-nav">
+            <button aria-label="Предыдущий месяц"><svg class="ic ic-sm" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+            <span class="h3" style="font-family: var(--font-display);">Ноябрь 2026</span>
+            <button aria-label="Следующий месяц"><svg class="ic ic-sm" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>
+          </div>
+          <article class="card" style="padding: 12px;">
+            <div class="cal-grid" id="cal-grid"><!-- рендерится JS --></div>
+          </article>
+          <article class="card" id="cal-detail" style="display: none;">
+            <p class="eyebrow" style="margin: 0 0 8px;" id="cal-detail-date"></p>
+            <div id="cal-detail-events"></div>
+          </article>
+        </div>
+
+        <div class="pad stack" style="gap: 12px;" id="afisha-list">
+          <!-- главное событие -->
+          <article class="card event-card" data-od-id="featured-event">
+            <p class="act">Ближайший акт</p>
+            <h2 class="title">Тренировка по импровизации</h2>
+            <div class="when">
+              <svg class="ic ic-sm" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+              Вт 25 ноября, 19:00–21:00
+            </div>
+            <div class="place">
+              <svg class="ic ic-sm" viewBox="0 0 24 24"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/></svg>
+              Зал №2, корпус 4
+            </div>
+            <div class="rsvp-row" role="group" aria-label="Запись на тренировку">
+              <button class="rsvp-btn" data-vote="yes" onclick="Member.vote('yes')">
+                <span class="label">Пойду</span>
+                <span class="count" data-count="yes">7</span>
+              </button>
+              <button class="rsvp-btn" data-vote="maybe" onclick="Member.vote('maybe')">
+                <span class="label">Возможно</span>
+                <span class="count" data-count="maybe">2</span>
+              </button>
+              <button class="rsvp-btn" data-vote="no" onclick="Member.vote('no')">
+                <span class="label">Не приду</span>
+                <span class="count" data-count="no">3</span>
+              </button>
+            </div>
+            <p class="meta" style="margin: 10px 0 0;" data-od-id="rsvp-hint">Нажми, чтобы записаться</p>
+          </article>
+
+          <!-- объявление -->
+          <article class="card" data-od-id="announcement-1">
+            <div class="row-between">
+              <span class="tag">Объявление</span>
+              <span class="meta">20 ноября</span>
+            </div>
+            <p style="margin: 10px 0 0; font-size: 14px; color: var(--fg-soft);">
+              Осенний показ — <strong>14 декабря</strong>. Номера утверждаем на
+              пятничной репетиции, готовьте идеи к среде.
+            </p>
+          </article>
+
+          <!-- ещё событие -->
+          <article class="card clickable" onclick="Member.openEvent('show')" data-od-id="event-show" role="link" tabindex="0" aria-label="Открыть событие: Осенний показ">
+            <div class="row-between">
+              <span class="tag">Событие</span>
+              <span class="meta">14 декабря</span>
+            </div>
+            <h3 class="h3" style="margin: 10px 0 4px;">Осенний показ</h3>
+            <p class="meta">Актовый зал · запись откроется 1 декабря</p>
+          </article>
+        </div>
+      </section>
+
+      <!-- ── Подэкран: Событие (детально) ── -->
+      <section data-mscreen="event" data-od-id="event-detail">
+        <div class="header">
+          <div>
+            <p class="greeting">Событие · №12</p>
+            <h1>Тренировка</h1>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="Member.openM('afisha')" aria-label="Назад к афише">
+            <svg class="ic" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          </button>
+        </div>
+
+        <div class="pad stack" style="gap: 12px;">
+          <article class="card event-card">
+            <div class="when">
+              <svg class="ic ic-sm" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+              Вт 25 ноября, 19:00–21:00
+            </div>
+            <div class="place">
+              <svg class="ic ic-sm" viewBox="0 0 24 24"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/></svg>
+              Зал №2, корпус 4
+            </div>
+            <p style="margin: 10px 0 0; font-size: 14px; color: var(--fg-mute);">Спарринг-сцены, брать сменку и воду.</p>
+            <div class="rsvp-row" role="group" aria-label="Запись">
+              <button class="rsvp-btn" data-vote="yes" onclick="Member.vote('yes')">
+                <span class="label">Пойду</span><span class="count" data-count="yes">7</span>
+              </button>
+              <button class="rsvp-btn" data-vote="maybe" onclick="Member.vote('maybe')">
+                <span class="label">Возможно</span><span class="count" data-count="maybe">2</span>
+              </button>
+              <button class="rsvp-btn" data-vote="no" onclick="Member.vote('no')">
+                <span class="label">Не приду</span><span class="count" data-count="no">3</span>
+              </button>
+            </div>
+          </article>
+
+          <!-- списки с зачёркиваниями -->
+          <article class="card" data-od-id="vote-lists-card">
+            <div class="vote-lists" id="vote-lists"><!-- рендерится JS --></div>
+          </article>
+        </div>
+      </section>
+
+      <!-- ── Подэкран: Опросы ── -->
+      <section data-mscreen="polls" data-od-id="polls">
+        <div class="header">
+          <div>
+            <p class="greeting">Мнение зала</p>
+            <h1>Опросы</h1>
+          </div>
+        </div>
+
+        <div class="pad stack" style="gap: 12px;">
+          <!-- активный опрос -->
+          <article class="card" data-od-id="active-poll">
+            <div class="row-between" style="margin-bottom: 10px;">
+              <span class="tag status-open">Открыт</span>
+              <span class="meta">до 28 ноября</span>
+            </div>
+            <h3 class="h3">Куда едем в декабре?</h3>
+            <p class="meta" style="margin: 4px 0 12px;">Мультивыбор · проголосовало 8</p>
+            <div id="poll-options"><!-- рендерится JS --></div>
+          </article>
+
+          <!-- закрытый опрос (итоги) -->
+          <article class="card" data-od-id="closed-poll">
+            <div class="row-between" style="margin-bottom: 10px;">
+              <span class="tag status-closed">Закрыт</span>
+              <span class="meta">15 ноября</span>
+            </div>
+            <h3 class="h3" style="margin-bottom: 10px;">Финал сезона: кабаре или драма?</h3>
+            <div class="stack" style="gap: 6px;">
+              <div class="row-between"><span style="font-size: 14px;">Кабаре</span><span class="num" style="font-weight: 600;">12</span></div>
+              <div class="progress"><span style="width: 75%;"></span></div>
+              <div class="row-between"><span style="font-size: 14px;">Драма</span><span class="num" style="font-weight: 600;">4</span></div>
+              <div class="progress"><span style="width: 25%;"></span></div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <!-- ── Подэкран: Оплата ── -->
+      <section data-mscreen="fees" data-od-id="fees">
+        <div class="header">
+          <div>
+            <p class="greeting">Клубный взнос · 200 ₽/мес</p>
+            <h1>Оплата</h1>
+          </div>
+        </div>
+
+        <div class="pad stack" style="gap: 12px;">
+          <!-- текущий долг -->
+          <article class="card" style="text-align: center; padding: 24px 20px;" data-od-id="debt-card">
+            <p class="meta" style="margin: 0 0 6px;">ТВОЙ ДОЛГ</p>
+            <div class="num" id="debt-amount" style="font-size: 48px; font-weight: 600; letter-spacing: -0.03em; line-height: 1;">400 <span style="font-size: 22px;">₽</span></div>
+            <div class="progress" style="margin: 16px auto; max-width: 240px;">
+              <span id="debt-bar" style="width: 67%;" class="warn"></span>
+            </div>
+            <p class="meta" style="margin: 0;" id="debt-hint">Порог предупреждения — 600 ₽</p>
+          </article>
+
+          <!-- история -->
+          <article class="card" data-od-id="fee-history">
+            <p class="eyebrow" style="margin: 0 0 10px;">История</p>
+            <div class="stack" style="gap: 0;">
+              <div class="list-row" style="grid-template-columns: 1fr auto;">
+                <div class="body">
+                  <div class="title">Взнос за ноябрь</div>
+                  <div class="sub">1 ноября</div>
+                </div>
+                <span class="num" style="color: var(--fg-mute);">+200 ₽</span>
+              </div>
+              <div class="list-row" style="grid-template-columns: 1fr auto;">
+                <div class="body">
+                  <div class="title">Платёж</div>
+                  <div class="sub">28 октября · наличными</div>
+                </div>
+                <span class="num" style="color: var(--olive);">−200 ₽</span>
+              </div>
+              <div class="list-row" style="grid-template-columns: 1fr auto;">
+                <div class="body">
+                  <div class="title">Взнос за октябрь</div>
+                  <div class="sub">1 октября</div>
+                </div>
+                <span class="num" style="color: var(--fg-mute);">+200 ₽</span>
+              </div>
+              <div class="list-row" style="grid-template-columns: 1fr auto;">
+                <div class="body">
+                  <div class="title">Платёж</div>
+                  <div class="sub">30 сентября · перевод</div>
+                </div>
+                <span class="num" style="color: var(--olive);">−200 ₽</span>
+              </div>
+            </div>
+          </article>
+
+          <!-- сообщить об оплате -->
+          <article class="card" id="fee-report-card" data-od-id="fee-report">
+            <p class="eyebrow" style="margin: 0 0 10px;">Я оплатил</p>
+            <form class="stack" style="gap: 10px;" onsubmit="return Member.submitFeeReport(event)">
+              <div class="grid-2">
+                <div class="form-field">
+                  <label for="fr-amount">Сумма, ₽</label>
+                  <input id="fr-amount" type="text" inputmode="numeric" pattern="[0-9]*" required value="200">
+                </div>
+                <div class="form-field">
+                  <label for="fr-how">Как</label>
+                  <select id="fr-how" style="padding: 10px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); font: inherit; min-height: 44px;">
+                    <option>Перевод</option>
+                    <option>Наличные</option>
+                  </select>
+                </div>
+              </div>
+              <button type="submit" class="btn btn-primary btn-sm">Отправить руководителю</button>
+            </form>
+          </article>
+          <p class="meta" style="text-align: center; margin: 4px 0 0;" id="fee-report-status">
+            Руководитель подтвердит — долг уменьшится
+          </p>
+        </div>
+      </section>
+
+      <!-- ── Подэкран: Профиль ── -->
+      <section data-mscreen="profile" data-od-id="profile">
+        <div class="header">
+          <div>
+            <p class="greeting">Твой профиль</p>
+            <h1>Аня К.</h1>
+          </div>
+        </div>
+
+        <div class="pad stack" style="gap: 12px;">
+          <!-- линковка -->
+          <article class="card" data-od-id="link-card">
+            <p class="eyebrow" style="margin: 0 0 10px;">Аккаунты</p>
+            <div class="stack" style="gap: 10px;">
+              <div class="row-between">
+                <div class="row">
+                  <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 12h8M12 8v8"/></svg>
+                  <span style="font-size: 14px;">ВКонтакте</span>
+                </div>
+                <span class="tag status-open">Связан</span>
+              </div>
+              <div class="row-between">
+                <div class="row">
+                  <svg class="ic" viewBox="0 0 24 24"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5c-1.5 0-3-.4-4.2-1.1L3 20l1.1-5.3A8.5 8.5 0 1 1 21 11.5z"/></svg>
+                  <span style="font-size: 14px;">Telegram</span>
+                </div>
+                <button class="btn btn-secondary btn-sm" onclick="Toast.show('Код связи отправлен в оба бота')">Связать</button>
+              </div>
+            </div>
+            <p class="meta" style="margin: 10px 0 0;">Связанные аккаунты = один голос</p>
+          </article>
+
+          <!-- чат с руководителем -->
+          <article class="card clickable" onclick="Member.openM('chat')" data-od-id="chat-entry" role="link" tabindex="0" aria-label="Написать руководителю">
+            <div class="row">
+              <svg class="ic" viewBox="0 0 24 24"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5c-1.5 0-3-.4-4.2-1.1L3 20l1.1-5.3A8.5 8.5 0 1 1 21 11.5z"/></svg>
+              <div style="flex: 1;">
+                <div class="h3">Написать руководителю</div>
+                <p class="meta" style="margin: 2px 0 0;">Прямое сообщение</p>
+              </div>
+              <svg class="ic" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
+            </div>
+          </article>
+
+          <!-- настройки -->
+          <article class="card" data-od-id="settings-card">
+            <p class="eyebrow" style="margin: 0 0 10px;">Настройки</p>
+            <div class="stack" style="gap: 0;">
+              <div class="list-row" style="grid-template-columns: 1fr auto;">
+                <div class="body"><div class="title">Объявления в личку</div><div class="sub">В беседе «Инфо» видно всегда</div></div>
+                <button class="btn btn-secondary btn-sm" aria-pressed="true" onclick="this.textContent = this.textContent === 'Вкл' ? 'Выкл' : 'Вкл'; this.setAttribute('aria-pressed', this.textContent === 'Вкл')">Вкл</button>
+              </div>
+              <div class="list-row" style="grid-template-columns: 1fr auto;">
+                <div class="body"><div class="title">Академический отпуск</div><div class="sub">Включает руководитель</div></div>
+                <span class="tag">Выкл</span>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+      <!-- ── Подэкран: Чат ── -->
+      <section data-mscreen="chat" data-od-id="member-chat" style="padding: 0;">
+        <div class="header" style="padding-bottom: 8px;">
+          <div>
+            <p class="greeting">Сообщения</p>
+            <h1>Руководитель</h1>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="Member.openM('profile')">
+            <svg class="ic" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          </button>
+        </div>
+        <div class="chat-list" id="member-chat-msgs" style="padding: 8px 16px;">
+          <div class="chat-msg in">Привет! Когда следующий показ?<span class="time">14:02</span></div>
+          <div class="chat-msg out">Привет! 14 декабря, номерами определимся на репетиции<span class="time">14:05</span></div>
+          <div class="chat-msg in">Понял, спасибо!<span class="time">14:06</span></div>
+        </div>
+        <div class="chat-input">
+          <input type="text" placeholder="Сообщение…" aria-label="Текст сообщения"
+                 onkeydown="if(event.key==='Enter'&&this.value.trim()){Member.sendChat(this)}">
+          <button onclick="Member.sendChat(this.previousElementSibling)" aria-label="Отправить">
+            <svg class="ic" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+          </button>
+        </div>
+      </section>
+    </main>
+
+    <!-- таббар -->
+    <nav class="tabbar" style="--tabs: 5;" aria-label="Главное меню" data-od-id="tabbar">
+      <button class="tab active" data-tab="afisha" onclick="Member.openM('afisha')">
+        <svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+        Афиша
+      </button>
+      <button class="tab" data-tab="polls" onclick="Member.openM('polls')">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M18 6L9 13l-3-2-4 3"/><path d="M2 20h20"/></svg>
+        Опросы
+      </button>
+      <button class="tab" data-tab="fees" onclick="Member.openM('fees')">
+        <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M15 9.5c0-1.4-1.3-2.5-3-2.5s-3 1-3 2.5c0 3 6 2 6 5 0 1.4-1.3 2.5-3 2.5s-3-1.1-3-2.5"/></svg>
+        Взнос
+      </button>
+      <button class="tab" data-tab="profile" onclick="Member.openM('profile')">
+        <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-7 8-7s8 3 8 7"/></svg>
+        Профиль
+      </button>
+    </nav>
+
+    <div class="home-indicator" aria-hidden="true"></div>
+  </div>
+</div>
+
+<!-- ═══════════════ РЕЖИМ РУКОВОДИТЕЛЯ (десктоп) ═══════════════ -->
+<div data-screen="admin" class="desktop-stage" data-od-id="admin-stage">
+  <div class="phone-topbar" style="width: min(1100px, 100%);">
+    <button class="back" data-go="cover">
+      <svg class="ic ic-sm" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+      Обложка
+    </button>
+    <span class="meta">Руководитель · демо-данные</span>
+  </div>
+
+  <div class="desktop-frame" data-od-id="admin-frame">
+    <div class="desktop-body">
+      <!-- сайдбар -->
+      <aside class="sidebar" aria-label="Разделы панели" data-od-id="sidebar">
+        <div class="brand">
+          <svg class="ic" viewBox="0 0 24 24"><path d="M3 4v16h18V4"/><path d="M3 8h18"/><path d="M12 4v4"/></svg>
+          Балаганчик
+        </div>
+        <button class="nav-item active" data-nav="dashboard" onclick="Admin.open('dashboard')">
+          <svg class="ic" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+          Дашборд
+        </button>
+        <button class="nav-item" data-nav="events" onclick="Admin.open('events')">
+          <svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+          События
+        </button>
+        <button class="nav-item" data-nav="polls" onclick="Admin.open('polls')">
+          <svg class="ic" viewBox="0 0 24 24"><path d="M18 6L9 13l-3-2-4 3"/><path d="M2 20h20"/></svg>
+          Опросы
+        </button>
+        <button class="nav-item" data-nav="people" onclick="Admin.open('people')">
+          <svg class="ic" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2 20c0-3.5 3-6.5 7-6.5s7 3 7 6.5"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14c3 0 6 2 6 6"/></svg>
+          Люди
+        </button>
+        <button class="nav-item" data-nav="fees" onclick="Admin.open('fees')">
+          <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M15 9.5c0-1.4-1.3-2.5-3-2.5s-3 1-3 2.5c0 3 6 2 6 5 0 1.4-1.3 2.5-3 2.5s-3-1.1-3-2.5"/></svg>
+          Оплата
+        </button>
+        <div class="spacer"></div>
+        <button class="exit" data-go="cover">
+          <svg class="ic" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+          Выйти
+        </button>
+      </aside>
+
+      <!-- основная область -->
+      <div class="main" data-od-id="admin-main">
+
+        <!-- ── Дашборд ── -->
+        <section class="desktop-screen active" data-dscreen="dashboard" data-od-id="dashboard">
+          <div class="main-header">
+            <h1>Дашборд</h1>
+            <div class="actions">
+              <span class="meta">23 ноября 2026 · 14:20</span>
+            </div>
+          </div>
+
+          <!-- ошибка outbox -->
+          <div class="error-banner" role="alert" data-od-id="outbox-error">
+            <svg class="ic" viewBox="0 0 24 24"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+            <span>2 из 38 карточек не доставлены — получатели заблокировали бота. <a href="#" onclick="Admin.open('people'); return false;" style="color: var(--accent-dark); font-weight: 500;">Посмотреть кто</a></span>
+          </div>
+
+          <div class="stat-grid" data-od-id="stats">
+            <div class="stat-card">
+              <div class="label">Активных событий</div>
+              <div class="value">3</div>
+              <div class="sub">ближайшее — вт 19:00</div>
+            </div>
+            <div class="stat-card">
+              <div class="label">Открытых опросов</div>
+              <div class="value">1</div>
+              <div class="sub">«Куда едем» · до 28 ноя</div>
+            </div>
+            <div class="stat-card">
+              <div class="label">Подписчики</div>
+              <div class="value">24</div>
+              <div class="sub">2 академ · 1 бан</div>
+            </div>
+            <div class="stat-card">
+              <div class="label">Общий долг</div>
+              <div class="value warn" id="admin-total-debt">2 400 <span style="font-size: 14px;">₽</span></div>
+              <div class="sub">у 8 человек · порог у 2</div>
+            </div>
+          </div>
+
+          <!-- подтверждения платежей -->
+          <div class="card" style="margin-bottom: 20px;" data-od-id="fee-confirmations">
+            <div class="row-between" style="margin-bottom: 12px;">
+              <p class="eyebrow" style="margin: 0;">Подтвердить оплату</p>
+              <span class="tag status-warn">2 ждут</span>
+            </div>
+            <div id="confirm-list"><!-- рендерится JS --></div>
+          </div>
+
+          <!-- заявки TG -->
+          <div class="card" style="margin-bottom: 20px;" data-od-id="tg-applications">
+            <div class="row-between" style="margin-bottom: 12px;">
+              <p class="eyebrow" style="margin: 0;">Заявки в Telegram</p>
+              <span class="tag status-open" id="app-count">1 новая</span>
+            </div>
+            <div id="application-list"><!-- рендерится JS --></div>
+          </div>
+
+          <!-- ближайшие события -->
+          <div class="card" data-od-id="upcoming-events">
+            <div class="row-between" style="margin-bottom: 12px;">
+              <p class="eyebrow" style="margin: 0;">Ближайшие</p>
+              <button class="btn btn-ghost btn-sm" onclick="Admin.open('events')">Все события →</button>
+            </div>
+            <div class="table-wrap" style="border: 0;">
+              <table>
+                <thead><tr><th>Что</th><th>Когда</th><th>Пойдут</th><th>Возможно</th><th>Запись</th></tr></thead>
+                <tbody>
+                  <tr><td style="font-weight: 500;">Тренировка по импровизации</td><td>Вт 25 ноя, 19:00</td><td class="num">7</td><td class="num">2</td><td><span class="tag status-open">Открыта</span></td></tr>
+                  <tr><td style="font-weight: 500;">Репетиция показа</td><td>Пт 28 ноя, 18:00</td><td class="num">11</td><td class="num">1</td><td><span class="tag status-open">Открыта</span></td></tr>
+                  <tr><td style="font-weight: 500;">Осенний показ</td><td>Вс 14 дек, 17:00</td><td class="num">4</td><td class="num">0</td><td><span class="tag status-closed">С 1 дек</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ── События ── -->
+        <section class="desktop-screen" data-dscreen="events" data-od-id="events">
+          <div class="main-header">
+            <h1>События</h1>
+            <div class="actions">
+              <button class="btn btn-primary btn-sm" onclick="Admin.toggleCreateEvent()">
+                <svg class="ic ic-sm" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+                Создать
+              </button>
+            </div>
+          </div>
+
+          <!-- форма создания (скрыта по умолчанию) -->
+          <div class="card" id="create-event-form" style="display: none; margin-bottom: 20px;" data-od-id="create-event">
+            <p class="eyebrow" style="margin: 0 0 14px;">Новое событие</p>
+            <form class="form-grid" onsubmit="return Admin.submitEvent(event)">
+              <div class="form-field">
+                <label for="ev-title">Название</label>
+                <input id="ev-title" required placeholder="Тренировка по импровизации" maxlength="100">
+              </div>
+              <div class="form-field">
+                <label for="ev-start">Начало</label>
+                <input id="ev-start" required placeholder="вт 19:00 · 25.11 19:00 · завтра">
+                <span class="hint">Понимает «вт 19:00», «завтра 18:00», «25.11 19:00»</span>
+              </div>
+              <div class="form-field">
+                <label for="ev-place">Место</label>
+                <input id="ev-place" placeholder="Зал №2, корпус 4">
+              </div>
+              <div class="form-field">
+                <label for="ev-end">Конец</label>
+                <input id="ev-end" placeholder="21:00">
+                <span class="hint">Не обязательно — по умолчанию +1 час</span>
+              </div>
+              <div class="form-field full">
+                <label for="ev-note">Описание</label>
+                <textarea id="ev-note" rows="2" placeholder="Что взять, чего ждать"></textarea>
+              </div>
+              <div class="form-field full" style="flex-direction: row; gap: 10px; align-items: center;">
+                <button type="submit" class="btn btn-primary btn-sm">Опубликовать</button>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="Admin.toggleCreateEvent()">Отмена</button>
+              </div>
+            </form>
+          </div>
+
+          <div class="card" data-od-id="events-list">
+            <div class="table-wrap" style="border: 0;">
+              <table>
+                <thead><tr><th>№</th><th>Название</th><th>Когда</th><th>Да</th><th>Возм.</th><th>Нет</th><th>Статус</th><th></th></tr></thead>
+                <tbody id="admin-events-tbody"><!-- рендерится JS --></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- карточка события (посещаемость) -->
+          <div class="card" style="margin-top: 20px;" data-od-id="attendance-card">
+            <div class="row-between" style="margin-bottom: 12px;">
+              <div>
+                <p class="eyebrow" style="margin: 0;">Тренировка · вт 25 ноября</p>
+                <h3 class="h3" style="margin: 6px 0 0;">Отметить пришедших</h3>
+              </div>
+              <span class="pill count"><span id="attendance-count">5</span> / 7</span>
+            </div>
+            <div class="stack" style="gap: 0;" id="attendance-list"><!-- рендерится JS --></div>
+          </div>
+        </section>
+
+        <!-- ── Опросы ── -->
+        <section class="desktop-screen" data-dscreen="polls" data-od-id="admin-polls">
+          <div class="main-header">
+            <h1>Опросы</h1>
+            <div class="actions">
+              <button class="btn btn-primary btn-sm" onclick="Toast.show('Форма создания опроса — в следующей итерации')">
+                <svg class="ic ic-sm" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+                Создать
+              </button>
+            </div>
+          </div>
+
+          <div class="card" style="margin-bottom: 20px;">
+            <div class="row-between" style="margin-bottom: 14px;">
+              <div>
+                <h3 class="h3">Куда едем в декабре?</h3>
+                <p class="meta" style="margin: 4px 0 0;">Мультивыбор · до 28 ноября · проголосовало 8</p>
+              </div>
+              <span class="tag status-open">Открыт</span>
+            </div>
+            <div class="stack" style="gap: 8px;">
+              <div class="row-between"><span>Баня</span><div class="row"><div class="progress" style="width: 120px;"><span style="width: 63%;"></span></div><span class="num">5</span></div></div>
+              <div class="row-between"><span>Каток</span><div class="row"><div class="progress" style="width: 120px;"><span style="width: 38%;"></span></div><span class="num">3</span></div></div>
+              <div class="row-between"><span>Квартирник</span><div class="row"><div class="progress" style="width: 120px;"><span style="width: 50%;"></span></div><span class="num">4</span></div></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="row-between" style="margin-bottom: 14px;">
+              <div>
+                <h3 class="h3">Финал сезона: кабаре или драма?</h3>
+                <p class="meta" style="margin: 4px 0 0;">Закрыт 15 ноября · проголосовало 16</p>
+              </div>
+              <span class="tag status-closed">Закрыт</span>
+            </div>
+            <div class="stack" style="gap: 8px;">
+              <div class="row-between"><span>Кабаре</span><div class="row"><div class="progress" style="width: 120px;"><span style="width: 75%;"></span></div><span class="num">12</span></div></div>
+              <div class="row-between"><span>Драма</span><div class="row"><div class="progress" style="width: 120px;"><span style="width: 25%;"></span></div><span class="num">4</span></div></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ── Люди ── -->
+        <section class="desktop-screen" data-dscreen="people" data-od-id="people">
+          <div class="main-header">
+            <h1>Люди</h1>
+            <div class="actions">
+              <input type="search" placeholder="Поиск по имени, @нику, id…" style="padding: 8px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); font: inherit; font-size: 14px; min-width: 240px;" aria-label="Поиск людей">
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="table-wrap" style="border: 0;">
+              <table>
+                <thead><tr><th>Имя</th><th>ВК</th><th>TG</th><th>Статус</th><th>Долг</th><th>Действия</th></tr></thead>
+                <tbody>
+                  <tr>
+                    <td style="font-weight: 500;">Аня К.</td>
+                    <td><span class="tag">id 253…</span></td>
+                    <td><span class="tag">@anny</span></td>
+                    <td><span class="tag status-open">Активна</span></td>
+                    <td class="num">400 ₽</td>
+                    <td><button class="btn btn-ghost btn-sm">История</button></td>
+                  </tr>
+                  <tr>
+                    <td style="font-weight: 500;">Боба</td>
+                    <td><span class="tag" style="visibility: hidden;">—</span></td>
+                    <td><span class="tag">@boba</span></td>
+                    <td><span class="tag status-open">Активен</span></td>
+                    <td class="num" style="color: var(--accent-dark); font-weight: 600;">800 ₽</td>
+                    <td><button class="btn btn-ghost btn-sm">История</button></td>
+                  </tr>
+                  <tr>
+                    <td style="font-weight: 500;">Вика</td>
+                    <td><span class="tag">id 118…</span></td>
+                    <td><span class="tag" style="visibility: hidden;">—</span></td>
+                    <td><span class="tag">Академ</span></td>
+                    <td class="num">200 ₽</td>
+                    <td><button class="btn btn-ghost btn-sm">История</button></td>
+                  </tr>
+                  <tr>
+                    <td style="font-weight: 500;">Гоша</td>
+                    <td><span class="tag">id 302…</span></td>
+                    <td><span class="tag">@gosh</span></td>
+                    <td><span class="tag status-open">Активен</span></td>
+                    <td class="num">0 ₽</td>
+                    <td><button class="btn btn-ghost btn-sm">История</button></td>
+                  </tr>
+                  <tr>
+                    <td style="font-weight: 500;">Дима (заблокирован)</td>
+                    <td><span class="tag">id 445…</span></td>
+                    <td><span class="tag" style="visibility: hidden;">—</span></td>
+                    <td><span class="tag status-warn">Бан</span></td>
+                    <td class="num">600 ₽</td>
+                    <td><button class="btn btn-ghost btn-sm">Разбанить</button></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ── Оплата ── -->
+        <section class="desktop-screen" data-dscreen="fees" data-od-id="admin-fees">
+          <div class="main-header">
+            <h1>Оплата</h1>
+            <div class="actions">
+              <span class="meta">Взнос 200 ₽/мес · порог 600 ₽</span>
+            </div>
+          </div>
+
+          <div class="stat-grid" style="grid-template-columns: repeat(3, 1fr); margin-bottom: 20px;">
+            <div class="stat-card">
+              <div class="label">Собрано в ноябре</div>
+              <div class="value">3 800 <span style="font-size: 14px;">₽</span></div>
+              <div class="sub">19 из 24 оплатили</div>
+            </div>
+            <div class="stat-card">
+              <div class="label">Общий долг</div>
+              <div class="value warn" id="fees-total-debt">2 400 <span style="font-size: 14px;">₽</span></div>
+              <div class="sub">у 8 человек</div>
+            </div>
+            <div class="stat-card">
+              <div class="label">Выше порога</div>
+              <div class="value warn">2</div>
+              <div class="sub">админы уведомлены</div>
+            </div>
+          </div>
+
+          <!-- форма платежа -->
+          <div class="card" style="margin-bottom: 20px;" data-od-id="payment-form">
+            <p class="eyebrow" style="margin: 0 0 14px;">Внести платёж</p>
+            <form class="form-grid" onsubmit="return Admin.submitPayment(event)">
+              <div class="form-field">
+                <label for="pay-who">Кто</label>
+                <input id="pay-who" required placeholder="Начни вводить имя…" list="people-list" autocomplete="off">
+                <datalist id="people-list">
+                  <option value="Аня К."><option value="Боба"><option value="Вика">
+                  <option value="Гоша"><option value="Дима">
+                </datalist>
+              </div>
+              <div class="form-field">
+                <label for="pay-type">Тип</label>
+                <select id="pay-type" style="padding: 10px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); font: inherit; min-height: 44px;">
+                  <option value="pay">Платёж (долг −)</option>
+                  <option value="charge">Доп. трата (долг +)</option>
+                </select>
+              </div>
+              <div class="form-field">
+                <label for="pay-amount">Сумма, ₽</label>
+                <input id="pay-amount" type="text" inputmode="numeric" pattern="[0-9]*" required placeholder="200" value="200">
+              </div>
+              <div class="form-field">
+                <label for="pay-what">За что</label>
+                <input id="pay-what" placeholder="Наличные · ноябрь">
+              </div>
+              <div class="form-field" style="justify-content: flex-end;">
+                <button type="submit" class="btn btn-primary btn-sm" style="align-self: stretch;">Записать</button>
+              </div>
+            </form>
+          </div>
+
+          <!-- таблица долгов -->
+          <div class="card" data-od-id="debts-table">
+            <div class="table-wrap" style="border: 0;">
+              <table>
+                <thead><tr><th>Кто</th><th>Долг</th><th>Последний платёж</th><th></th></tr></thead>
+                <tbody id="debts-tbody"><!-- рендерится JS --></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ РЕЖИМ РУКОВОДИТЕЛЯ (мобильный) ═══════════════ -->
+<div data-screen="admin-mobile" class="phone-stage" data-od-id="admin-mobile-stage">
+  <div class="phone-topbar">
+    <button class="back" data-go="cover">
+      <svg class="ic ic-sm" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+      Обложка
+    </button>
+    <span class="meta">Руководитель · моб.</span>
+    <span class="meta">9:41</span>
+  </div>
+
+  <div class="screen" data-od-id="admin-mobile-screen">
+    <div class="statusbar" aria-hidden="true">
+      <span class="num">9:41</span>
+      <span class="right">
+        <svg viewBox="0 0 17 11"><rect x="0" y="7" width="3" height="4" rx="0.6"/><rect x="4" y="5" width="3" height="6" rx="0.6"/><rect x="8" y="3" width="3" height="8" rx="0.6"/><rect x="12" y="0" width="3" height="11" rx="0.6"/></svg>
+        <svg viewBox="0 0 17 11"><path d="M8.5 1.5C5.5 1.5 2.7 2.6 0.5 4.6L2 6.1C3.8 4.5 6.1 3.6 8.5 3.6c2.4 0 4.7 0.9 6.5 2.5l1.5-1.5c-2.2-2-5-3.1-8-3.1zM3.5 7.6L5 9.1c1-0.9 2.2-1.4 3.5-1.4 1.3 0 2.5 0.5 3.5 1.4l1.5-1.5c-1.4-1.3-3.1-2-5-2-1.9 0-3.6 0.7-5 2zM6.5 10.6l2 2 2-2c-0.5-0.5-1.2-0.8-2-0.8s-1.5 0.3-2 0.8z"/></svg>
+        <svg class="battery" viewBox="0 0 25 11"><rect x="0.5" y="0.5" width="21" height="10" rx="2.5" fill="none" stroke="currentColor" stroke-opacity="0.45"/><rect x="22" y="3.5" width="1.5" height="4" rx="0.4" fill="currentColor" fill-opacity="0.45"/><rect x="2" y="2" width="18" height="7" rx="1.4"/></svg>
+      </span>
+    </div>
+
+    <main class="content" id="admin-mobile-content" data-od-id="admin-mobile-content">
+
+      <!-- ── Подэкран: Дашборд (моб.) ── -->
+      <section data-amscreen="m-dash" class="active" data-od-id="m-dash">
+        <div class="header">
+          <div>
+            <p class="greeting">Панель · 23 ноября</p>
+            <h1>Дашборд</h1>
+          </div>
+        </div>
+
+        <div class="pad stack" style="gap: 12px;">
+          <!-- компактные счётчики 2×2 -->
+          <div class="grid-2" data-od-id="m-stats">
+            <div class="card" style="padding: 14px;">
+              <div class="meta" style="margin: 0 0 4px;">СОБЫТИЙ</div>
+              <div class="num" style="font-size: 24px; font-weight: 600;">3</div>
+            </div>
+            <div class="card" style="padding: 14px;">
+              <div class="meta" style="margin: 0 0 4px;">ПОДПИСЧИКИ</div>
+              <div class="num" style="font-size: 24px; font-weight: 600;">24</div>
+            </div>
+            <div class="card" style="padding: 14px;">
+              <div class="meta" style="margin: 0 0 4px;">ДОЛГ</div>
+              <div class="num" style="font-size: 24px; font-weight: 600; color: var(--accent-dark);" id="m-total-debt">2 400 ₽</div>
+            </div>
+            <div class="card" style="padding: 14px;">
+              <div class="meta" style="margin: 0 0 4px;">ПОРОГ</div>
+              <div class="num" style="font-size: 24px; font-weight: 600; color: var(--accent-dark);">2</div>
+            </div>
+          </div>
+
+          <!-- ошибка -->
+          <div class="error-banner" style="margin: 0;" role="alert">
+            <svg class="ic" viewBox="0 0 24 24"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+            <span style="font-size: 12px;">2 карточки не доставлены</span>
+          </div>
+
+          <!-- заявки TG -->
+          <article class="card" data-od-id="m-applications">
+            <div class="row-between" style="margin-bottom: 10px;">
+              <p class="eyebrow" style="margin: 0;">Заявки TG</p>
+              <span class="tag status-open" id="m-app-count">2</span>
+            </div>
+            <div id="m-app-list"><!-- рендерится JS --></div>
+          </article>
+
+          <!-- подтверждения платежей -->
+          <article class="card" data-od-id="m-fee-confirms">
+            <div class="row-between" style="margin-bottom: 10px;">
+              <p class="eyebrow" style="margin: 0;">Подтвердить оплату</p>
+              <span class="tag status-warn" id="m-confirm-count">2</span>
+            </div>
+            <div id="m-confirm-list"><!-- рендерится JS --></div>
+          </article>
+
+          <!-- ближайшие события -->
+          <article class="card" data-od-id="m-upcoming">
+            <p class="eyebrow" style="margin: 0 0 10px;">Ближайшие</p>
+            <div class="stack" style="gap: 0;">
+              <div class="list-row" style="grid-template-columns: 1fr auto;">
+                <div class="body">
+                  <div class="title">Тренировка</div>
+                  <div class="sub">Вт 25 ноя, 19:00</div>
+                </div>
+                <span class="pill count">7</span>
+              </div>
+              <div class="list-row" style="grid-template-columns: 1fr auto;">
+                <div class="body">
+                  <div class="title">Репетиция показа</div>
+                  <div class="sub">Пт 28 ноя, 18:00</div>
+                </div>
+                <span class="pill count">11</span>
+              </div>
+              <div class="list-row" style="grid-template-columns: 1fr auto;">
+                <div class="body">
+                  <div class="title">Осенний показ</div>
+                  <div class="sub">Вс 14 дек, 17:00</div>
+                </div>
+                <span class="pill count">4</span>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <!-- ── Подэкран: События (моб.) ── -->
+      <section data-amscreen="m-events" data-od-id="m-events">
+        <div class="header">
+          <div>
+            <p class="greeting">Управление</p>
+            <h1>События</h1>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="AdminM.toggleCreate()">
+            <svg class="ic ic-sm" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
+        </div>
+
+        <div class="pad stack" style="gap: 12px;">
+          <!-- форма создания (скрыта) -->
+          <article class="card" id="m-create-form" style="display: none;">
+            <p class="eyebrow" style="margin: 0 0 12px;">Новое событие</p>
+            <form class="stack" style="gap: 10px;" onsubmit="return AdminM.submitEvent(event)">
+              <div class="form-field">
+                <label for="m-ev-title">Название</label>
+                <input id="m-ev-title" required placeholder="Тренировка">
+              </div>
+              <div class="form-field">
+                <label for="m-ev-start">Начало</label>
+                <input id="m-ev-start" required placeholder="вт 19:00">
+              </div>
+              <div class="form-field">
+                <label for="m-ev-place">Место</label>
+                <input id="m-ev-place" placeholder="Зал №2">
+              </div>
+              <div class="row" style="gap: 10px;">
+                <button type="submit" class="btn btn-primary btn-sm" style="flex: 1;">Опубликовать</button>
+                <button type="button" class="btn btn-secondary btn-sm" style="flex: 1;" onclick="AdminM.toggleCreate()">Отмена</button>
+              </div>
+            </form>
+          </article>
+
+          <!-- список событий карточками -->
+          <div id="m-events-list"><!-- рендерится JS --></div>
+        </div>
+      </section>
+
+      <!-- ── Подэкран: Событие детально / посещаемость (моб.) ── -->
+      <section data-amscreen="m-attend" data-od-id="m-attend">
+        <div class="header">
+          <div>
+            <p class="greeting">Тренировка · вт 25 ноября</p>
+            <h1>Пришедшие</h1>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="AdminM.openAM('m-events')">
+            <svg class="ic" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          </button>
+        </div>
+        <div class="pad">
+          <div class="row-between" style="margin-bottom: 12px;">
+            <span class="meta">Отмечено</span>
+            <span class="pill count"><span id="m-attend-count">5</span> / 7</span>
+          </div>
+          <article class="card">
+            <div class="stack" style="gap: 0;" id="m-attend-list"><!-- рендерится JS --></div>
+          </article>
+        </div>
+      </section>
+
+      <!-- ── Подэкран: Люди (моб.) ── -->
+      <section data-amscreen="m-people" data-od-id="m-people">
+        <div class="header">
+          <div>
+            <p class="greeting">24 участника</p>
+            <h1>Люди</h1>
+          </div>
+        </div>
+        <div class="pad stack" style="gap: 12px;">
+          <input type="search" placeholder="Поиск по имени, @нику, id…"
+                 style="padding: 10px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); font: inherit; font-size: 14px; width: 100%;"
+                 aria-label="Поиск людей">
+          <article class="card">
+            <p class="meta" style="margin: 0;">Тап по имени — чат · тумблер — академ</p>
+            <div class="stack" style="gap: 0;" id="m-people-list"><!-- рендерится JS --></div>
+          </article>
+        </div>
+      </section>
+
+      <!-- ── Подэкран: Оплата (моб.) ── -->
+      <section data-amscreen="m-fees" data-od-id="m-fees">
+        <div class="header">
+          <div>
+            <p class="greeting">Взнос 200 ₽/мес · порог 600 ₽</p>
+            <h1>Оплата</h1>
+          </div>
+        </div>
+        <div class="pad stack" style="gap: 12px;">
+          <!-- сводка -->
+          <div class="grid-2">
+            <div class="card" style="padding: 14px;">
+              <div class="meta" style="margin: 0 0 4px;">ДОЛГ КЛУБА</div>
+              <div class="num" style="font-size: 22px; font-weight: 600; color: var(--accent-dark);" id="m-fees-total">2 400 ₽</div>
+            </div>
+            <div class="card" style="padding: 14px;">
+              <div class="meta" style="margin: 0 0 4px;">ВЫШЕ ПОРОГА</div>
+              <div class="num" style="font-size: 22px; font-weight: 600; color: var(--accent-dark);">2</div>
+            </div>
+          </div>
+
+          <!-- форма платежа -->
+          <article class="card">
+            <p class="eyebrow" style="margin: 0 0 12px;">Внести платёж</p>
+            <form class="stack" style="gap: 10px;" onsubmit="return AdminM.submitPayment(event)">
+              <div class="form-field">
+                <label for="m-pay-who">Кто</label>
+                <input id="m-pay-who" required placeholder="Имя" list="people-list" autocomplete="off">
+              </div>
+              <div class="row" style="gap: 6px;">
+                <button type="button" class="btn btn-primary btn-sm" style="flex:1;" id="m-pay-type-pay"
+                        onclick="AdminM.setPayType('pay')">Платёж</button>
+                <button type="button" class="btn btn-secondary btn-sm" style="flex:1;" id="m-pay-type-charge"
+                        onclick="AdminM.setPayType('charge')">Доп. трата</button>
+              </div>
+              <div class="grid-2">
+                <div class="form-field">
+                  <label for="m-pay-amount">Сумма, ₽</label>
+                  <input id="m-pay-amount" type="text" inputmode="numeric" pattern="[0-9]*" required value="200">
+                </div>
+                <div class="form-field">
+                  <label for="m-pay-what" id="m-pay-what-label">За что</label>
+                  <input id="m-pay-what" placeholder="Наличные">
+                </div>
+              </div>
+              <button type="submit" class="btn btn-primary btn-sm" id="m-pay-submit">Записать платёж</button>
+            </form>
+          </article>
+
+          <!-- должники -->
+          <article class="card">
+            <p class="eyebrow" style="margin: 0 0 10px;">Должники</p>
+            <div class="stack" style="gap: 0;" id="m-debts-list"><!-- рендерится JS --></div>
+          </article>
+        </div>
+      </section>
+      <!-- ── Подэкран: Чат с участником ── -->
+      <section data-amscreen="m-chat" data-od-id="m-chat" style="padding: 0;">
+        <div class="header" style="padding-bottom: 8px;">
+          <div>
+            <p class="greeting">Сообщения</p>
+            <h1 id="m-chat-name">Аня К.</h1>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="AdminM.openAM('m-people')">
+            <svg class="ic" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          </button>
+        </div>
+        <div class="chat-list" id="m-chat-msgs" style="padding: 8px 16px;">
+          <div class="chat-msg in">Здравствуйте! Я оплатила 200 ₽ переводом<span class="time">13:50</span></div>
+          <div class="chat-msg out">Привет! Вижу подтверждение, сейчас отмечу<span class="time">13:55</span></div>
+          <div class="chat-msg out">Готово, спасибо!<span class="time">13:56</span></div>
+        </div>
+        <div class="chat-input">
+          <input type="text" placeholder="Сообщение…" aria-label="Текст сообщения"
+                 onkeydown="if(event.key==='Enter'&&this.value.trim()){AdminM.sendChat(this)}">
+          <button onclick="AdminM.sendChat(this.previousElementSibling)" aria-label="Отправить">
+            <svg class="ic" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+          </button>
+        </div>
+      </section>
+    </main>
+
+    <!-- таббар -->
+    <nav class="tabbar" style="--tabs: 4;" aria-label="Меню руководителя" data-od-id="m-tabbar">
+      <button class="tab active" data-mtab="m-dash" onclick="AdminM.openAM('m-dash')">
+        <svg class="ic" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+        Дашборд
+      </button>
+      <button class="tab" data-mtab="m-events" onclick="AdminM.openAM('m-events')">
+        <svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+        События
+      </button>
+      <button class="tab" data-mtab="m-people" onclick="AdminM.openAM('m-people')">
+        <svg class="ic" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2 20c0-3.5 3-6.5 7-6.5s7 3 7 6.5"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14c3 0 6 2 6 6"/></svg>
+        Люди
+      </button>
+      <button class="tab" data-mtab="m-fees" onclick="AdminM.openAM('m-fees')">
+        <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M15 9.5c0-1.4-1.3-2.5-3-2.5s-3 1-3 2.5c0 3 6 2 6 5 0 1.4-1.3 2.5-3 2.5s-3-1.1-3-2.5"/></svg>
+        Оплата
+      </button>
+    </nav>
+
+    <div class="home-indicator" aria-hidden="true"></div>
+  </div>
+</div>
+
+<!-- toast -->
+<div id="toast-zone" role="status" aria-live="polite"></div>
+<div class="demo-note">ДЕМО-ДАННЫЕ · ПРОТОТИП</div>
+</div>
+
+<script>
+/* ═══════════════ Состояние ═══════════════ */
+const state = {
+  myVote: null,
+  counts: { yes: 7, maybe: 2, no: 3 },
+  votes: [
+    { name: 'Аня К.', answer: 'yes', tag: null },
+    { name: 'Боба', answer: 'yes', tag: 'TG' },
+    { name: 'Вика', answer: 'yes', tag: null },
+    { name: 'Гоша', answer: 'maybe', tag: null },
+    { name: 'Дима', answer: 'no', tag: null },
+    { name: 'Ева', answer: 'no', tag: null, prev: 'yes', prevTime: '19:40' },
+    { name: 'Женя', answer: 'yes', tag: 'VK' },
+    { name: 'Зоя', answer: 'no', tag: 'TG' },
+  ],
+  poll: {
+    question: 'Куда едем в декабре?',
+    multi: true,
+    voted: 8,
+    options: [
+      { label: 'Баня', count: 5 },
+      { label: 'Каток', count: 3 },
+      { label: 'Квартирник', count: 4 },
+    ],
+    myPicks: new Set(),
+  },
+  attendance: {
+    expected: 7, present: 5,
+    people: [
+      { name: 'Аня К.', present: true },
+      { name: 'Боба', present: true },
+      { name: 'Вика', present: true },
+      { name: 'Гоша', present: false },
+      { name: 'Ева', present: true },
+      { name: 'Женя', present: false },
+      { name: 'Зоя', present: true },
+    ],
+  },
+  applications: [
+    { id: 1, name: 'Марк', username: '@mark_kpi', time: '14:02', status: 'pending' },
+    { id: 2, name: 'Лиза', username: '@liza_t', time: 'вчера', status: 'pending' },
+    { id: 3, name: 'Костя', username: '@kv', time: '12 ноя', status: 'approved' },
+  ],
+  debts: [
+    { name: 'Боба', amount: 800, over: true, last: '28 окт · 200 ₽' },
+    { name: 'Аня К.', amount: 400, over: false, last: '28 окт · 200 ₽' },
+    { name: 'Дима', amount: 600, over: true, last: '30 сен · 200 ₽' },
+    { name: 'Вика', amount: 200, over: false, last: '5 ноя · 200 ₽' },
+    { name: 'Ева', amount: 200, over: false, last: '1 ноя · 400 ₽' },
+  ],
+  totalDebt: 2400,
+  payType: 'pay', // 'pay' | 'charge'
+  feeReports: [
+    { id: 1, name: 'Аня К.', amount: 200, method: 'Перевод', time: '13:50', status: 'pending' },
+    { id: 2, name: 'Ева', amount: 400, method: 'Наличные', time: '12:15', status: 'pending' },
+  ],
+};
+
+/* ═══════════════ Утилиты ═══════════════ */
+const $ = sel => document.querySelector(sel);
+const $$ = sel => document.querySelectorAll(sel);
+
+function esc(s) {
+  const d = document.createElement('div'); d.textContent = s; return d.innerHTML;
+}
+
+/* ═══════════════ Toast ═══════════════ */
+const Toast = {
+  show(text) {
+    const zone = $('#toast-zone');
+    const el = document.createElement('div');
+    el.className = 'toast';
+    el.textContent = text;
+    zone.appendChild(el);
+    setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity 200ms'; }, 1800);
+    setTimeout(() => el.remove(), 2100);
+  },
+};
+
+/* ═══════════════ Переключение режимов ═══════════════ */
+function goMode(mode) {
+  $$('[data-screen]').forEach(el => el.classList.remove('active'));
+  const target = document.querySelector(`[data-screen="${mode}"]`);
+  if (target) target.classList.add('active');
+}
+document.addEventListener('click', e => {
+  const btn = e.target.closest('[data-go]');
+  if (btn) goMode(btn.dataset.go);
+});
+
+/* ═══════════════ Режим участника ═══════════════ */
+const Member = {
+  openM(name) {
+    $$('#member-content [data-mscreen]').forEach(el => el.classList.remove('active'));
+    const target = document.querySelector(`[data-mscreen="${name}"]`);
+    if (target) target.classList.add('active');
+    $$('.tabbar .tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+    $('#member-content').scrollTop = 0;
+  },
+
+  openEvent(id) {
+    this.openM('event');
+  },
+
+  vote(answer) {
+    const prev = state.myVote;
+    if (prev === answer) {
+      // повторное нажатие = снять
+      state.counts[answer]--;
+      state.myVote = null;
+      state.votes = state.votes.filter(v => v.name !== 'Ты');
+      Toast.show('Ответ снят');
+    } else {
+      if (prev) {
+        state.counts[prev]--;
+        state.votes = state.votes.filter(v => v.name !== 'Ты');
+      }
+      state.counts[answer]++;
+      state.myVote = answer;
+      state.votes.push({ name: 'Ты', answer, tag: null });
+      const labels = { yes: 'Пойду', maybe: 'Возможно', no: 'Не приду' };
+      Toast.show(`Записал: ${labels[answer]}`);
+    }
+    this.renderRSVP();
+    this.renderVoteLists();
+  },
+
+  renderRSVP() {
+    $$('.rsvp-btn').forEach(btn => {
+      const v = btn.dataset.vote;
+      btn.querySelector(`[data-count="${v}"]`).textContent = state.counts[v];
+      btn.classList.toggle('selected', state.myVote === v);
+    });
+    const hint = $('[data-od-id="rsvp-hint"]');
+    if (hint) hint.textContent = state.myVote ? 'Повторное нажатие — снять ответ' : 'Нажми, чтобы записаться';
+  },
+
+  renderVoteLists() {
+    const groups = {
+      yes: { title: 'Пойдут' },
+      maybe: { title: 'Возможно' },
+      no: { title: 'Не придут' },
+    };
+    let html = '';
+    for (const [key, g] of Object.entries(groups)) {
+      const current = state.votes.filter(v => v.answer === key);
+      const struck = state.votes.filter(v => v.answer === key && v.prev);
+      html += `<div class="vote-group">
+        <div class="group-label">${g.title} · ${current.filter(v => !v.prev).length}</div>
+        <div class="names">`;
+      for (const v of current) {
+        if (v.prev) {
+          html += `<span class="struck">${esc(v.name)}${v.tag ? ` <span class="name-tag">${v.tag}</span>` : ''}</span> <span class="struck-note">(${v.prevTime})</span>`;
+        } else {
+          html += `<span>${esc(v.name)}${v.tag ? ` <span class="name-tag">${v.tag}</span>` : ''}</span>`;
+        }
+      }
+      if (!current.length) html += '<span style="color: var(--fg-faint);">—</span>';
+      html += '</div></div>';
+    }
+    $('#vote-lists').innerHTML = html;
+  },
+
+  renderPoll() {
+    const total = state.poll.options.reduce((s, o) => s + o.count, 0);
+    const html = state.poll.options.map((o, i) => {
+      const pct = total ? Math.round(o.count / total * 100) : 0;
+      const selected = state.poll.myPicks.has(i);
+      return `
+        <div class="poll-option ${selected ? 'selected' : ''}" role="button" tabindex="0"
+             aria-pressed="${selected}"
+             onclick="Member.pollPick(${i})"
+             onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();Member.pollPick(${i})}">
+          <div class="fill" style="width: ${pct}%;"></div>
+          <span class="opt-label">${esc(o.label)}</span>
+          <span class="opt-count">${o.count}</span>
+        </div>`;
+    }).join('');
+    $('#poll-options').innerHTML = html;
+  },
+
+  // ── Календарь ──
+  setView(v) {
+    $('#afisha-list').style.display = v === 'list' ? '' : 'none';
+    $('#afisha-calendar').style.display = v === 'cal' ? '' : 'none';
+    $('#view-list').classList.toggle('active', v === 'list');
+    $('#view-cal').classList.toggle('active', v === 'cal');
+    $('#view-list').setAttribute('aria-selected', v === 'list');
+    $('#view-cal').setAttribute('aria-selected', v === 'cal');
+    if (v === 'cal') this.renderCalendar();
+  },
+
+  renderCalendar() {
+    // Ноябрь 2026: вс=0, 1 ноя = воскресенье
+    const events = { 25: 'Тренировка 19:00', 28: 'Репетиция 18:00', 14: null }; // декабрь события не в этом месяце
+    const today = 23;
+    let html = '';
+    const dows = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+    for (const d of dows) html += `<div class="cal-dow">${d}</div>`;
+    // ноябрь 2026: 1-е = воскресенье (index 0)
+    const daysInMonth = 30;
+    const firstDow = 0; // вс
+    for (let i = 0; i < firstDow; i++) html += '<div class="cal-day other"></div>';
+    for (let d = 1; d <= daysInMonth; d++) {
+      const has = events[d];
+      const isToday = d === today;
+      const cls = [ 'cal-day',
+        isToday ? 'today' : '',
+        has ? 'has-event' : '',
+      ].filter(Boolean).join(' ');
+      html += `<div class="${cls}" ${has ? `role="button" tabindex="0" aria-label="${d} ноября: ${has}" onclick="Member.calDay(${d}, '${has}')" onkeydown="if(event.key==='Enter')Member.calDay(${d},'${has}')"` : ''}>${d}</div>`;
+    }
+    $('#cal-grid').innerHTML = html;
+  },
+
+  calDay(day, label) {
+    $('#cal-detail').style.display = 'block';
+    $('#cal-detail-date').textContent = `${day} ноября`;
+    $('#cal-detail-events').innerHTML = `
+      <div class="list-row" style="grid-template-columns: 1fr auto;">
+        <div class="body"><div class="title">${label}</div></div>
+        <span class="pill count">7</span>
+      </div>`;
+  },
+
+  // ── Сообщить об оплате ──
+  submitFeeReport(e) {
+    e.preventDefault();
+    const amount = parseInt($('#fr-amount').value) || 0;
+    const method = $('#fr-how').value;
+    if (!amount) return false;
+    state.feeReports.push({ id: Date.now(), name: 'Аня К.', amount, method, time: 'сейчас', status: 'pending' });
+    $('#fee-report-status').textContent = `Отправлено: ${amount} ₽ (${method}). Ждите подтверждения.`;
+    Toast.show('Руководитель уведомлён');
+    // обновляем админские экраны
+    Admin.renderConfirms();
+    AdminM.renderConfirms();
+    return false;
+  },
+
+  // ── Чат ──
+  sendChat(input) {
+    const text = input.value.trim();
+    if (!text) return;
+    const zone = $('#member-chat-msgs');
+    const now = new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
+    zone.insertAdjacentHTML('beforeend',
+      `<div class="chat-msg out">${esc(text)}<span class="time">${now}</span></div>`);
+    input.value = '';
+    zone.scrollTop = zone.scrollHeight;
+  },
+
+  pollPick(i) {
+    const picks = state.poll.myPicks;
+    if (picks.has(i)) {
+      picks.delete(i);
+      state.poll.options[i].count--;
+      state.poll.voted--;
+    } else {
+      if (!state.poll.multi && picks.size > 0) {
+        const old = [...picks][0];
+        picks.delete(old);
+        state.poll.options[old].count--;
+        state.poll.voted--;
+      }
+      picks.add(i);
+      state.poll.options[i].count++;
+      state.poll.voted++;
+    }
+    this.renderPoll();
+  },
+};
+
+/* ═══════════════ Режим руководителя ═══════════════ */
+const Admin = {
+  open(name) {
+    $$('.desktop-screen').forEach(el => el.classList.remove('active'));
+    const target = document.querySelector(`[data-dscreen="${name}"]`);
+    if (target) target.classList.add('active');
+    $$('.nav-item').forEach(t => t.classList.toggle('active', t.dataset.nav === name));
+  },
+
+  toggleCreateEvent() {
+    const form = $('#create-event-form');
+    form.style.display = form.style.display === 'none' ? 'block' : 'none';
+    if (form.style.display === 'block') $('#ev-title').focus();
+  },
+
+  submitEvent(e) {
+    e.preventDefault();
+    const title = $('#ev-title').value.trim();
+    if (!title) { Toast.show('Название обязательно'); return false; }
+    Toast.show(`Событие «${title}» опубликовано — карточки разосланы`);
+    this.toggleCreateEvent();
+    e.target.reset();
+    return false;
+  },
+
+  submitPayment(e) {
+    e.preventDefault();
+    const who = $('#pay-who').value.trim();
+    const amount = parseInt($('#pay-amount').value) || 0;
+    const type = ($('#pay-type') || {}).value || 'pay';
+    if (!who || !amount) { Toast.show('Заполни «кто» и «сумма»'); return false; }
+    const isPay = type === 'pay';
+    if (isPay) {
+      const person = state.debts.find(d => d.name === who);
+      if (person) {
+        person.amount = Math.max(0, person.amount - amount);
+        if (person.amount === 0) state.debts = state.debts.filter(d => d.name !== who);
+        state.totalDebt -= amount;
+      }
+    } else {
+      // доп. трата: увеличиваем долг
+      state.totalDebt += amount;
+      const person = state.debts.find(d => d.name === who);
+      if (person) {
+        person.amount += amount;
+      } else {
+        state.debts.push({ name: who, amount, over: amount > 600, last: 'трата сейчас' });
+      }
+      Toast.show(`Доп. трата ${amount} ₽ для ${who} начислена`);
+      this.renderDebts();
+      AdminM.renderDebts();
+      const dt = $('#fees-total-debt'); if (dt) dt.innerHTML = `${state.totalDebt} <span style="font-size:14px;">₽</span>`;
+      const at = $('#admin-total-debt'); if (at) at.innerHTML = `${state.totalDebt} <span style="font-size:14px;">₽</span>`;
+      e.target.reset();
+      $('#pay-amount').value = '200';
+      return false;
+    }
+    $('#fees-total-debt').innerHTML = `${state.totalDebt} <span style="font-size: 14px;">₽</span>`;
+    $('#admin-total-debt').innerHTML = `${state.totalDebt} <span style="font-size: 14px;">₽</span>`;
+    this.renderDebts();
+    AdminM.renderDebts();
+    Toast.show(`Платёж ${amount} ₽ от ${who} записан`);
+    e.target.reset();
+    $('#pay-amount').value = '200';
+    return false;
+  },
+
+  // ── Тип платежа ──
+  setPayType(type) {
+    state.payType = type;
+    const isPay = type === 'pay';
+    const btnPay = $('#m-pay-type-pay'), btnCharge = $('#m-pay-type-charge');
+    if (btnPay) {
+      btnPay.className = `btn btn-${isPay ? 'primary' : 'secondary'} btn-sm`;
+      btnPay.style.flex = '1';
+      btnCharge.className = `btn btn-${isPay ? 'secondary' : 'primary'} btn-sm`;
+      btnCharge.style.flex = '1';
+      $('#m-pay-submit').textContent = isPay ? 'Записать платёж' : 'Начислить трату';
+      $('#m-pay-what-label').textContent = isPay ? 'За что' : 'За что (трата)';
+    }
+  },
+
+  // ── Подтверждения платежей ──
+  renderConfirms() {
+    const pending = state.feeReports.filter(r => r.status === 'pending');
+    const el = $('#m-confirm-list');
+    if (!el) return;
+    const cnt = $('#m-confirm-count');
+    if (cnt) cnt.textContent = `${pending.length}`;
+    el.innerHTML = pending.map(r => `
+      <div class="confirm-card">
+        <div class="row-between" style="margin-bottom: 8px;">
+          <div>
+            <span class="who">${esc(r.name)}</span>
+            <span class="meta" style="margin-left: 8px;">${esc(r.method)} · ${esc(r.time)}</span>
+          </div>
+        </div>
+        <div class="row-between">
+          <div class="row" style="gap: 6px;">
+            <label for="conf-amt-${r.id}" class="meta" style="font-size: 11px;">Сумма:</label>
+            <input class="amount-edit" id="conf-amt-${r.id}" value="${r.amount}" inputmode="numeric"
+                   aria-label="Сумма платежа от ${esc(r.name)}">
+            <span class="meta">₽</span>
+          </div>
+          <div class="row" style="gap: 6px;">
+            <button class="btn btn-primary btn-sm" style="min-height: 36px;" onclick="AdminM.confirmPay(${r.id}, true)">Подтвердить</button>
+            <button class="btn btn-secondary btn-sm" style="min-height: 36px;" onclick="AdminM.confirmPay(${r.id}, false)">Отклонить</button>
+          </div>
+        </div>
+      </div>`).join('') || '<p class="meta" style="text-align:center; padding:12px;">Нет ожидающих подтверждений</p>';
+  },
+
+  confirmPay(id, ok) {
+    const r = state.feeReports.find(x => x.id === id);
+    if (!r) return;
+    const input = document.getElementById(`conf-amt-${r.id}`);
+    if (input) r.amount = parseInt(input.value) || r.amount;
+    r.status = ok ? 'confirmed' : 'rejected';
+    if (ok) {
+      // уменьшаем долг
+      const person = state.debts.find(d => d.name === r.name);
+      if (person) {
+        person.amount = Math.max(0, person.amount - r.amount);
+        if (person.amount === 0) state.debts = state.debts.filter(d => d.name !== r.name);
+        state.totalDebt -= r.amount;
+      }
+      Toast.show(`${r.name}: платёж ${r.amount} ₽ подтверждён`);
+    } else {
+      Toast.show(`Платёж ${r.name} отклонён`);
+    }
+    this.renderConfirms();
+    this.renderDebts();
+    Admin.renderConfirms();
+    Admin.renderDebts();
+    const dt = $('#fees-total-debt'); if (dt) dt.innerHTML = `${state.totalDebt} <span style="font-size:14px;">₽</span>`;
+    const at = $('#admin-total-debt'); if (at) at.innerHTML = `${state.totalDebt} <span style="font-size:14px;">₽</span>`;
+  },
+
+  // ── Чат ──
+  sendChat(input) {
+    const text = input.value.trim();
+    if (!text) return;
+    const zone = $('#m-chat-msgs');
+    const now = new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
+    zone.insertAdjacentHTML('beforeend',
+      `<div class="chat-msg out">${esc(text)}<span class="time">${now}</span></div>`);
+    input.value = '';
+    zone.scrollTop = zone.scrollHeight;
+  },
+
+  // ── Люди: с чатом и академом ──
+  openChat(name) {
+    $('#m-chat-name').textContent = name;
+    this.openAM('m-chat');
+  },
+
+  toggleAkadem(el, name) {
+    const on = el.classList.toggle('on');
+    el.setAttribute('aria-checked', on);
+    el.setAttribute('aria-label', `Академ для ${name}: ${on ? 'вкл' : 'выкл'}`);
+    Toast.show(`${name}: академ ${on ? 'включён' : 'выключен'} — взносы ${on ? 'приостановлены' : 'восстановлены'}`);
+  },
+
+  renderConfirms() {
+    const pending = state.feeReports.filter(r => r.status === 'pending');
+    const el = $('#confirm-list');
+    if (!el) return;
+    el.innerHTML = pending.map(r => `
+      <div class="confirm-card">
+        <div class="row-between" style="margin-bottom: 8px;">
+          <div>
+            <span class="who">${esc(r.name)}</span>
+            <span class="meta" style="margin-left: 8px;">${esc(r.method)} · ${esc(r.time)}</span>
+          </div>
+        </div>
+        <div class="row-between">
+          <div class="row" style="gap: 6px;">
+            <input class="amount-edit" id="d-conf-amt-${r.id}" value="${r.amount}" inputmode="numeric"
+                   aria-label="Сумма от ${esc(r.name)}">
+            <span class="meta">₽</span>
+          </div>
+          <div class="row" style="gap: 6px;">
+            <button class="btn btn-primary btn-sm" onclick="Admin.confirmPay(${r.id}, true)">Подтвердить</button>
+            <button class="btn btn-secondary btn-sm" onclick="Admin.confirmPay(${r.id}, false)">Отклонить</button>
+          </div>
+        </div>
+      </div>`).join('') || '<p class="meta" style="text-align:center;padding:12px;">Нет ожидающих</p>';
+  },
+
+  confirmPay(id, ok) {
+    const r = state.feeReports.find(x => x.id === id);
+    if (!r) return;
+    const input = document.getElementById(`d-conf-amt-${r.id}`);
+    if (input) r.amount = parseInt(input.value) || r.amount;
+    r.status = ok ? 'confirmed' : 'rejected';
+    if (ok) {
+      const person = state.debts.find(d => d.name === r.name);
+      if (person) {
+        person.amount = Math.max(0, person.amount - r.amount);
+        if (person.amount === 0) state.debts = state.debts.filter(d => d.name !== r.name);
+        state.totalDebt -= r.amount;
+      }
+      Toast.show(`${r.name}: платёж ${r.amount} ₽ подтверждён`);
+    } else {
+      Toast.show(`Платёж ${r.name} отклонён`);
+    }
+    this.renderConfirms();
+    this.renderDebts();
+    AdminM.renderConfirms();
+    AdminM.renderDebts();
+    const dt = $('#fees-total-debt'); if (dt) dt.innerHTML = `${state.totalDebt} <span style="font-size:14px;">₽</span>`;
+    const at = $('#admin-total-debt'); if (at) at.innerHTML = `${state.totalDebt} <span style="font-size:14px;">₽</span>`;
+  },
+
+  renderDebts() {
+    const html = state.debts.map(d => `
+      <tr>
+        <td style="font-weight: 500;">${esc(d.name)}</td>
+        <td class="num" style="${d.over ? 'color: var(--accent-dark); font-weight: 600;' : ''}">${d.amount} ₽${d.over ? '' : ''}</td>
+        <td style="color: var(--fg-mute); font-size: 13px;">${esc(d.last)}</td>
+        <td>${d.over ? '<span class="tag status-warn">Порог</span>' : ''}</td>
+      </tr>`).join('');
+    $('#debts-tbody').innerHTML = html || '<tr><td colspan="4" style="text-align: center; color: var(--fg-faint); padding: 24px;">Должников нет — все оплатили</td></tr>';
+  },
+
+  renderApplications() {
+    const pending = state.applications.filter(a => a.status === 'pending');
+    const done = state.applications.filter(a => a.status !== 'pending');
+    const html = [
+      ...pending.map(a => `
+        <div class="list-row" style="grid-template-columns: 1fr auto;">
+          <div class="body">
+            <div class="title">${esc(a.name)} <span class="name-tag" style="font-family: var(--font-mono); font-size: 11px; color: var(--fg-faint);">${esc(a.username)}</span></div>
+            <div class="sub">${esc(a.time)}</div>
+          </div>
+          <div class="row" style="gap: 8px;">
+            <button class="btn btn-primary btn-sm" onclick="Admin.approveApp(${a.id}, true)" aria-label="Одобрить заявку ${esc(a.name)}">
+              <svg class="ic ic-sm" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+            </button>
+            <button class="btn btn-secondary btn-sm" onclick="Admin.approveApp(${a.id}, false)" aria-label="Отклонить заявку ${esc(a.name)}">
+              <svg class="ic ic-sm" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+          </div>
+        </div>`),
+      ...done.map(a => `
+        <div class="list-row" style="grid-template-columns: 1fr auto; opacity: 0.6;">
+          <div class="body">
+            <div class="title">${esc(a.name)} <span class="name-tag" style="font-family: var(--font-mono); font-size: 11px; color: var(--fg-faint);">${esc(a.username)}</span></div>
+          </div>
+          <span class="tag ${a.status === 'approved' ? 'status-open' : 'status-warn'}">${a.status === 'approved' ? 'Принят' : 'Отклонён'}</span>
+        </div>`),
+    ].join('');
+    $('#application-list').innerHTML = html || '<div class="empty-state"><div class="icon-circle"><svg class="ic" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></div><h3>Все заявки обработаны</h3><p>Новые заявки появятся здесь</p></div>';
+    $('#app-count').textContent = `${pending.length} нов.`;
+  },
+
+  approveApp(id, approve) {
+    const app = state.applications.find(a => a.id === id);
+    if (app) {
+      app.status = approve ? 'approved' : 'denied';
+      Toast.show(approve ? `${app.name} принят — карточки отправлены` : `Заявка ${app.name} отклонена`);
+      this.renderApplications();
+      AdminM.renderApps(); // синк с мобильным
+    }
+  },
+
+  renderAttendance() {
+    const html = state.attendance.people.map((p, i) => `
+      <div class="list-row" style="grid-template-columns: 40px 1fr auto;">
+        <div class="avatar">${esc(p.name[0])}</div>
+        <div class="body"><div class="title">${esc(p.name)}</div></div>
+        <button class="check ${p.present ? 'on' : ''}" role="checkbox" aria-checked="${p.present}"
+                aria-label="Отметить ${esc(p.name)}" tabindex="0"
+                onclick="Admin.attendance(${i})" onkeydown="if(event.key===' '){event.preventDefault();Admin.attendance(${i})}">
+          ${p.present ? '<svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>' : ''}
+        </button>
+      </div>`).join('');
+    $('#attendance-list').innerHTML = html;
+    $('#attendance-count').textContent = state.attendance.present;
+  },
+
+  attendance(i) {
+    const p = state.attendance.people[i];
+    p.present = !p.present;
+    state.attendance.present += p.present ? 1 : -1;
+    this.renderAttendance();
+  },
+
+  renderEvents() {
+    const events = [
+      { id: 12, title: 'Тренировка по импровизации', when: 'Вт 25 ноя, 19:00', yes: 7, maybe: 2, no: 3, status: 'active' },
+      { id: 13, title: 'Репетиция показа', when: 'Пт 28 ноя, 18:00', yes: 11, maybe: 1, no: 0, status: 'active' },
+      { id: 14, title: 'Осенний показ', when: 'Вс 14 дек, 17:00', yes: 4, maybe: 0, no: 0, status: 'closed' },
+      { id: 11, title: 'Вступительная встреча', when: 'Ср 12 ноя, 19:00', yes: 18, maybe: 2, no: 1, status: 'finished' },
+    ];
+    const statusTag = s => ({
+      active: '<span class="tag status-open">Идёт запись</span>',
+      closed: '<span class="tag status-closed">Запись закрыта</span>',
+      finished: '<span class="tag">Завершено</span>',
+      cancelled: '<span class="tag status-warn">Отменено</span>',
+    }[s]);
+    const html = events.map(e => `
+      <tr>
+        <td class="num" style="color: var(--fg-faint);">${e.id}</td>
+        <td style="font-weight: 500;">${esc(e.title)}</td>
+        <td>${esc(e.when)}</td>
+        <td class="num">${e.yes}</td>
+        <td class="num">${e.maybe}</td>
+        <td class="num">${e.no}</td>
+        <td>${statusTag(e.status)}</td>
+        <td><button class="btn btn-ghost btn-sm">Открыть</button></td>
+      </tr>`).join('');
+    $('#admin-events-tbody').innerHTML = html;
+  },
+};
+
+/* ═══════════════ Мобильный режим руководителя ═══════════════ */
+const AdminM = {
+  openAM(name) {
+    $$('#admin-mobile-content [data-amscreen]').forEach(el => el.classList.remove('active'));
+    const target = document.querySelector(`[data-amscreen="${name}"]`);
+    if (target) target.classList.add('active');
+    $$('#m-tabbar .tab').forEach(t => t.classList.toggle('active', t.dataset.mtab === name));
+    $('#admin-mobile-content').scrollTop = 0;
+  },
+
+  toggleCreate() {
+    const f = $('#m-create-form');
+    f.style.display = f.style.display === 'none' ? 'block' : 'none';
+    if (f.style.display === 'block') $('#m-ev-title').focus();
+  },
+
+  submitEvent(e) {
+    e.preventDefault();
+    const t = $('#m-ev-title').value.trim();
+    if (!t) return false;
+    Toast.show(`«${t}» опубликовано`);
+    this.toggleCreate();
+    e.target.reset();
+    return false;
+  },
+
+  submitPayment(e) {
+    e.preventDefault();
+    const who = $('#m-pay-who').value.trim();
+    const amount = parseInt($('#m-pay-amount').value) || 0;
+    if (!who || !amount) return false;
+    const isPay = state.payType === 'pay';
+    if (isPay) {
+      const person = state.debts.find(d => d.name === who);
+      if (person) {
+        person.amount = Math.max(0, person.amount - amount);
+        if (person.amount === 0) state.debts = state.debts.filter(d => d.name !== who);
+        state.totalDebt -= amount;
+      }
+      Toast.show(`Платёж ${amount} ₽ от ${who} записан`);
+    } else {
+      state.totalDebt += amount;
+      const person = state.debts.find(d => d.name === who);
+      if (person) person.amount += amount;
+      else state.debts.push({ name: who, amount, over: amount > 600, last: 'трата сейчас' });
+      Toast.show(`Доп. трата ${amount} ₽ для ${who}`);
+    }
+    this.renderDebts();
+    Admin.renderDebts();
+    const dt = $('#fees-total-debt'); if (dt) dt.innerHTML = `${state.totalDebt} <span style="font-size:14px;">₽</span>`;
+    const at = $('#admin-total-debt'); if (at) at.innerHTML = `${state.totalDebt} <span style="font-size:14px;">₽</span>`;
+    e.target.reset();
+    $('#m-pay-amount').value = '200';
+    return false;
+  },
+
+  renderApps() {
+    const pend = state.applications.filter(a => a.status === 'pending');
+    const done = state.applications.filter(a => a.status !== 'pending');
+    const html = [
+      ...pend.map(a => `
+        <div class="list-row" style="grid-template-columns: 1fr auto;">
+          <div class="body">
+            <div class="title">${esc(a.name)} <span class="meta" style="font-size: 11px;">${esc(a.username)}</span></div>
+            <div class="sub">${esc(a.time)}</div>
+          </div>
+          <div class="row" style="gap: 6px;">
+            <button class="btn btn-primary btn-sm" style="min-height: 36px; padding: 4px 12px;" onclick="AdminM.approve(${a.id}, true)" aria-label="Принять ${esc(a.name)}">
+              <svg class="ic ic-sm" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+            </button>
+            <button class="btn btn-secondary btn-sm" style="min-height: 36px; padding: 4px 12px;" onclick="AdminM.approve(${a.id}, false)" aria-label="Отказать ${esc(a.name)}">
+              <svg class="ic ic-sm" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+          </div>
+        </div>`),
+      ...done.map(a => `
+        <div class="list-row" style="grid-template-columns: 1fr auto; opacity: 0.55;">
+          <div class="body"><div class="title">${esc(a.name)}</div></div>
+          <span class="tag ${a.status === 'approved' ? 'status-open' : 'status-warn'}">${a.status === 'approved' ? 'Принят' : 'Отказ'}</span>
+        </div>`),
+    ].join('');
+    $('#m-app-list').innerHTML = html || '<p class="meta" style="text-align:center; padding:16px;">Все заявки обработаны</p>';
+    $('#m-app-count').textContent = `${pend.length}`;
+  },
+
+  approve(id, ok) {
+    const a = state.applications.find(x => x.id === id);
+    if (a) {
+      a.status = ok ? 'approved' : 'denied';
+      Toast.show(ok ? `${a.name} принят` : `${a.name} — отказ`);
+      this.renderApps();
+      Admin.renderApplications(); // синк с десктопом
+    }
+  },
+
+  renderEvents() {
+    const events = [
+      { id: 12, title: 'Тренировка', when: 'Вт 25 ноя, 19:00', yes: 7, st: 'Открыта', cls: 'status-open' },
+      { id: 13, title: 'Репетиция показа', when: 'Пт 28 ноя, 18:00', yes: 11, st: 'Открыта', cls: 'status-open' },
+      { id: 14, title: 'Осенний показ', when: 'Вс 14 дек, 17:00', yes: 4, st: 'Закрыта', cls: 'status-closed' },
+      { id: 11, title: 'Вступительная', when: 'Ср 12 ноя', yes: 18, st: 'Завершено', cls: '' },
+    ];
+    $('#m-events-list').innerHTML = events.map(e => `
+      <article class="card clickable" style="margin-bottom: 10px;" onclick="AdminM.openAM('m-attend')" role="link" tabindex="0" aria-label="Открыть ${esc(e.title)}">
+        <div class="row-between">
+          <span class="tag ${e.cls}">${e.st}</span>
+          <span class="meta">№${e.id}</span>
+        </div>
+        <h3 class="h3" style="margin: 8px 0 2px;">${esc(e.title)}</h3>
+        <div class="row-between">
+          <span class="meta">${esc(e.when)}</span>
+          <span class="pill count">${e.yes} пойдут</span>
+        </div>
+      </article>`).join('');
+  },
+
+  renderAttend() {
+    $('#m-attend-list').innerHTML = state.attendance.people.map((p, i) => `
+      <div class="list-row" style="grid-template-columns: 36px 1fr auto;">
+        <div class="avatar" style="width:36px;height:36px;font-size:14px;">${esc(p.name[0])}</div>
+        <div class="body"><div class="title">${esc(p.name)}</div></div>
+        <button class="check ${p.present ? 'on' : ''}" role="checkbox" aria-checked="${p.present}"
+                aria-label="${esc(p.name)}" tabindex="0"
+                onclick="AdminM.attend(${i})" onkeydown="if(event.key===' '){event.preventDefault();AdminM.attend(${i})}">
+          ${p.present ? '<svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>' : ''}
+        </button>
+      </div>`).join('');
+    $('#m-attend-count').textContent = state.attendance.present;
+  },
+
+  attend(i) {
+    const p = state.attendance.people[i];
+    p.present = !p.present;
+    state.attendance.present += p.present ? 1 : -1;
+    this.renderAttend();
+  },
+
+  renderPeople() {
+    const people = [
+      { name: 'Аня К.', vk: true, tg: '@anny', st: 'Активна', stCls: 'status-open', debt: '400 ₽', akadem: false },
+      { name: 'Боба', vk: false, tg: '@boba', st: 'Активен', stCls: 'status-open', debt: '800 ₽', akadem: false },
+      { name: 'Вика', vk: true, tg: null, st: 'Академ', stCls: '', debt: '200 ₽', akadem: true },
+      { name: 'Гоша', vk: true, tg: '@gosh', st: 'Активен', stCls: 'status-open', debt: '0 ₽', akadem: false },
+      { name: 'Дима', vk: true, tg: null, st: 'Бан', stCls: 'status-warn', debt: '600 ₽', akadem: false },
+    ];
+    $('#m-people-list').innerHTML = people.map((p, i) => `
+      <div class="list-row" style="grid-template-columns: 36px 1fr auto;">
+        <div class="avatar" style="width:36px;height:36px;font-size:14px;cursor:pointer;" onclick="AdminM.openChat('${esc(p.name)}')" role="button" tabindex="0" aria-label="Чат с ${esc(p.name)}" onkeydown="if(event.key==='Enter')AdminM.openChat('${esc(p.name)}')">${esc(p.name[0])}</div>
+        <div class="body" style="cursor:pointer;" onclick="AdminM.openChat('${esc(p.name)}')">
+          <div class="title">${esc(p.name)}</div>
+          <div class="sub">${p.vk ? 'VK' : ''} ${p.tg ? '· ' + esc(p.tg) : ''}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
+          <span class="tag ${p.stCls}" style="font-size:10px;">${p.st}</span>
+          <span class="num" style="font-size:12px;${p.debt !== '0 ₽' ? 'color:var(--accent-dark);' : 'color:var(--fg-faint);'}">${p.debt}</span>
+          <button class="toggle ${p.akadem ? 'on' : ''}" role="switch" aria-checked="${p.akadem}"
+                  aria-label="Академ: ${esc(p.name)}" tabindex="0"
+                  onclick="AdminM.toggleAkadem(this,'${esc(p.name)}')"
+                  onkeydown="if(event.key===' '||event.key==='Enter'){event.preventDefault();AdminM.toggleAkadem(this,'${esc(p.name)}')}"></button>
+        </div>
+      </div>`).join('');
+  },
+
+  renderDebts() {
+    $('#m-debts-list').innerHTML = state.debts.map(d => `
+      <div class="list-row" style="grid-template-columns: 1fr auto;">
+        <div class="body">
+          <div class="title">${esc(d.name)}</div>
+          <div class="sub">${esc(d.last)}</div>
+        </div>
+        <span class="num" style="font-weight: 600; ${d.over ? 'color: var(--accent-dark);' : ''}">${d.amount} ₽</span>
+      </div>`).join('') || '<p class="meta" style="text-align:center; padding:16px;">Все оплатили</p>';
+    const el = $('#m-fees-total');
+    if (el) el.textContent = `${state.totalDebt} ₽`;
+    const el2 = $('#m-total-debt');
+    if (el2) el2.textContent = `${state.totalDebt} ₽`;
+  },
+};
+
+/* ═══════════════ Инициализация ═══════════════ */
+document.addEventListener('DOMContentLoaded', () => {
+  Member.renderVoteLists();
+  Member.renderPoll();
+  Member.renderRSVP();
+  Admin.renderApplications();
+  Admin.renderDebts();
+  Admin.renderAttendance();
+  Admin.renderEvents();
+  AdminM.renderApps();
+  AdminM.renderEvents();
+  AdminM.renderAttend();
+  AdminM.renderPeople();
+  AdminM.renderDebts();
+  AdminM.renderConfirms();
+  Admin.renderConfirms();
+});
+</script>
+</body>
+</html>

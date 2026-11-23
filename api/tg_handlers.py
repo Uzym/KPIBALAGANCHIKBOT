@@ -1,9 +1,12 @@
 """API: обработчики апдейтов Telegram (ЛС профиля; канал — только исходящий)."""
 from __future__ import annotations
 
+import dataclasses
+import json
 import logging
 
 from bll import events as events_bll
+from bll import fees as fees_bll
 from bll import linking as linking_bll
 from bll import polls as polls_bll
 from bll import rsvp as rsvp_bll
@@ -13,6 +16,25 @@ from dal import repositories as repo
 from .renderers import render_tg
 
 log = logging.getLogger("tg.handlers")
+
+
+def _tg_media_json(m: dict) -> str | None:
+    """Вложения TG-сообщения → JSON [MediaRef] (для переписки в панели)."""
+    from bll.contracts import MediaRef
+
+    refs: list[MediaRef] = []
+    photo = m.get("photo")
+    if photo:
+        big = max(photo, key=lambda p: p.get("width", 0) * p.get("height", 0))
+        refs.append(MediaRef(kind="photo", tg_file_id=big.get("file_id")))
+    doc = m.get("document")
+    if doc:
+        refs.append(MediaRef(kind="doc", tg_file_id=doc.get("file_id"),
+                             filename=doc.get("file_name")))
+    voice = m.get("voice")
+    if voice:
+        refs.append(MediaRef(kind="voice", tg_file_id=voice.get("file_id")))
+    return json.dumps([dataclasses.asdict(r) for r in refs], ensure_ascii=False) if refs else None
 
 
 def _appeal_kb() -> dict:
@@ -64,7 +86,8 @@ def _reply_kb(rows: list[list[str]]) -> dict:
 
 
 async def send_menu_tg(app, uid: int, linked: bool, vk_name: str | None = None) -> None:
-    rows = [["📅 События", "🗳 Голосования"], ["⚙️ Настройки", "📩 Написать админам"]] if linked \
+    rows = [["📅 События", "🗳 Голосования"], ["⚙️ Настройки", "📩 Написать админам"],
+            ["💰 Оплата"]] if linked \
         else [["📩 Написать админам"]]
     text = (welcome_tg_vm(linked, vk_name).text or "")
     await app.tg.send_message(uid, text, reply_markup=_reply_kb(rows))
@@ -83,10 +106,35 @@ async def _on_message(app, m: dict) -> None:
     if sender.get("is_bot"):
         return
     if chat.get("type") != "private":
-        # канал и группа комментариев — только исходящие посты бота
-        log.debug("сообщение из %s %s — игнорируем", chat.get("type"), chat.get("id"))
+        if app.cfg.tg_readonly_chat_id and chat.get("id") == app.cfg.tg_readonly_chat_id:
+            await _tg_readonly(app, chat, m)
+        else:
+            # группа с карточками и прочие — только исходящие посты бота
+            log.debug("сообщение из %s %s — игнорируем", chat.get("type"), chat.get("id"))
         return
     await _on_private(app, sender, chat, m)
+
+
+async def _tg_readonly(app, chat: dict, m: dict) -> None:
+    """TG-группа только для чтения: удаляем чужое сообщение, автору — «Я понял»."""
+    uid = (m.get("from") or {}).get("id")
+    if not uid:
+        return
+    mid = m.get("message_id")
+    if mid:
+        try:
+            await app.tg.delete_message(chat["id"], mid)
+        except Exception as e:
+            log.warning("tg readonly delete failed: %s", e)
+    try:
+        await app.tg.send_message(
+            uid, "Здесь писать нельзя — этот чат только для чтения.",
+            reply_markup={"inline_keyboard": [
+                [{"text": "Я понял", "callback_data": "tgack"}],
+            ]},
+        )
+    except Exception as e:
+        log.warning("tg readonly notice failed: %s", e)
 
 
 def tg_state(app, sender: dict, chat: dict, m: dict) -> tuple[int, bool, str | None]:
@@ -106,6 +154,15 @@ async def _on_private(app, sender: dict, chat: dict, m: dict) -> None:
     uid, linked, vk_name = tg_state(app, sender, chat, m)
     text = (m.get("text") or "").strip()
     state_key = ("tg", uid)
+
+    # переписка в панели: фиксируем входящие ЛС (текст + вложения)
+    try:
+        with app.db.session() as s:
+            repo.add_dm_message(s, "tg", chat["id"], "in", text or "",
+                                _tg_media_json(m))
+            s.commit()
+    except Exception as e:
+        log.warning("dm record tg %s: %s", uid, e)
 
     state = app.dialog_states.get(state_key)
     if state == "appeal":
@@ -127,6 +184,49 @@ async def _on_private(app, sender: dict, chat: dict, m: dict) -> None:
             return
 
     low = text.lower()
+
+    # бан действует всегда — даже для слинкованных с ВК
+    with app.db.session() as s:
+        acc = repo.ensure_account(s, "tg", uid)
+        sub = repo.get_subscription(s, acc.id)
+        banned = bool(sub and sub.banned)
+        status = sub.status if sub else None
+        acc_id = acc.id
+        s.commit()
+    if banned:
+        await app.tg.send_message(chat["id"], "⛔ Доступ запрещён. "
+                                              "Если это ошибка — напиши руководителю клуба.")
+        return
+
+    # «чистый» TG (без привязки к ВК): заявка → одобрение админами
+    if not linked and status is None:
+        with app.db.session() as s:
+            repo.upsert_subscription(s, acc_id, "pending")
+            s.commit()
+        await _notify_tg_request(app, uid)
+        await app.tg.send_message(chat["id"], "📨 Заявка отправлена руководителям — жди ответа.")
+        return
+    if not linked and status == "pending":
+        await app.tg.send_message(chat["id"], "⏳ Заявка на рассмотрении — "
+                                              "руководители скоро ответят.")
+        return
+    if not linked and status == "blocked":
+        if low.startswith("/start") or low.startswith("/начать"):
+            with app.db.session() as s:
+                repo.set_subscription_status(s, acc_id, "pending")
+                s.commit()
+            await _notify_tg_request(app, uid)
+            await app.tg.send_message(chat["id"], "📨 Заявка отправлена снова — жди ответа.")
+        else:
+            await app.tg.send_message(chat["id"], "Твоя заявка была отклонена. "
+                                                  "/start — подать снова.")
+        return
+    if not linked and status == "stopped":
+        if low.startswith("/start") or low.startswith("/начать"):
+            with app.db.session() as s:
+                repo.set_subscription_status(s, acc_id, "active")
+                s.commit()
+
     if text in ("📅 События",):
         with app.db.session() as s:
             await app.tg.send_message(chat["id"], events_bll.listing_text(s, app.cfg))
@@ -137,6 +237,9 @@ async def _on_private(app, sender: dict, chat: dict, m: dict) -> None:
         return
     if text == "⚙️ Настройки":
         await _settings(app, uid, chat["id"])
+        return
+    if text == "💰 Оплата" or low.startswith("/оплата"):
+        await _member_fees_tg(app, uid, chat["id"])
         return
     if text == "📩 Написать админам":
         app.dialog_states[state_key] = "appeal"
@@ -168,10 +271,57 @@ async def _settings(app, uid: int, chat_id: int) -> None:
     await send_dm_vm_tg(app, chat_id, vm)
 
 
+async def _notify_tg_request(app, uid: int) -> None:
+    """Заявка «чистого» TG-участника — админам ВК с кнопками ✅/❌."""
+    with app.db.session() as s:
+        acc = repo.get_account_by_platform_id(s, "tg", uid)
+        name = acc.display_name if acc else "?"
+        username = acc.username if acc else None
+        s.commit()
+    uname = f" @{username}" if username else ""
+    kb = {
+        "inline": True,
+        "buttons": [
+            [{"action": {"type": "callback", "label": "✅ Пустить",
+                         "payload": json.dumps({"a": "tgreq", "e": uid, "v": "yes"})}},
+             {"action": {"type": "callback", "label": "❌ Отказать",
+                         "payload": json.dumps({"a": "tgreq", "e": uid, "v": "no"})}}],
+        ],
+    }
+    for admin_id in app.admins_vk:
+        try:
+            await app.vk.send_message(
+                admin_id,
+                f"🔔 TG-заявка: {name}{uname} (id{uid}) просит доступ к боту.",
+                keyboard=kb,
+            )
+        except Exception as e:
+            log.warning("tg request to %s failed: %s", admin_id, e)
+
+
+async def _member_fees_tg(app, uid: int, chat_id: int) -> None:
+    """Просмотр своего долга (TG)."""
+    with app.db.session() as s:
+        acc = repo.get_account_by_platform_id(s, "tg", uid)
+        if acc is None or acc.person_id is None:
+            s.commit()
+            await app.tg.send_message(chat_id, "Сначала /start.")
+            return
+        text = fees_bll.debt_overview(s, app.cfg, acc.person_id)
+        s.commit()
+    await app.tg.send_message(chat_id, text)
+
+
 async def _forward_appeal(app, uid: int, sender: dict, m: dict) -> None:
     name = " ".join(x for x in [sender.get("first_name"), sender.get("last_name")] if x) or "?"
     body = (m.get("text") or "").strip() or "📎 (медиа)"
     with app.db.session() as s:
+        acc = repo.get_account_by_platform_id(s, "tg", uid)
+        if acc is not None and acc.person_id:
+            from bll.publication import person_name
+            pn = person_name(s, acc.person_id)
+            if pn:
+                name = pn
         appeal = repo.create_appeal(s, "tg", uid, name)
         appeal_id = appeal.id
         s.commit()
@@ -192,6 +342,17 @@ async def _on_callback(app, cb: dict) -> None:
 
     async def toast(text: str) -> None:
         await app.tg.answer_callback(cb["id"], text)
+
+    if data == "tgack":
+        # «Я понял» в ЛС-оповещении о read-only группе — удалить это сообщение
+        msg = cb.get("message") or {}
+        mid = msg.get("message_id")
+        if mid:
+            try:
+                await app.tg.delete_message(uid, mid)
+            except Exception as e:
+                log.debug("tgack delete failed: %s", e)
+        return
 
     if data.startswith("m:"):
         value = data[2:]
@@ -224,15 +385,37 @@ async def _on_callback(app, cb: dict) -> None:
     name = " ".join(x for x in [sender.get("first_name"), sender.get("last_name")] if x) or "?"
 
     if action in ("vote", "remove_vote", "poll", "poll_clear"):
+        # кнопка на общей карточке TG-группы?
+        msg_obj = cb.get("message") or {}
+        chat_obj = msg_obj.get("chat") or {}
+        is_group_card = False
+        if chat_obj.get("type") in ("group", "supergroup"):
+            with app.db.session() as s:
+                post = repo.find_post_by_message(
+                    s, "tg", str(chat_obj.get("id")), msg_obj.get("message_id"))
+                is_group_card = post is not None and post.kind == "chat_card"
+                s.commit()
         with app.db.session() as s:
             acc = repo.ensure_account(s, "tg", uid, display_name=name, username=sender.get("username"))
             linking_bll.try_link(s, app.cfg, acc)
+            sub = repo.get_subscription(s, acc.id)
+            if sub is not None and sub.banned:
+                s.commit()
+                await toast("⛔ Доступ запрещён")
+                return
             if acc.person_id is None:
                 s.commit()
                 await toast(LINK_ALERT)
                 return
             if action == "vote":
-                key = rsvp_bll.cast_vote(s, app.cfg, "tg", uid, content_id, value)
+                if is_group_card:
+                    v = repo.get_vote(s, content_id, acc.id)
+                    if v is not None and v.answer == value:
+                        key = rsvp_bll.remove_vote(s, app.cfg, "tg", uid, content_id)
+                    else:
+                        key = rsvp_bll.cast_vote(s, app.cfg, "tg", uid, content_id, value)
+                else:
+                    key = rsvp_bll.cast_vote(s, app.cfg, "tg", uid, content_id, value)
             elif action == "remove_vote":
                 key = rsvp_bll.remove_vote(s, app.cfg, "tg", uid, content_id)
             elif action == "poll":

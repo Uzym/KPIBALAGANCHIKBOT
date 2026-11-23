@@ -15,14 +15,20 @@ from dal.models import Post
 
 from config import Config
 from . import events as events_bll
+from . import fees as fees_bll
 from . import maintenance as maintenance_bll
 from . import polls as polls_bll
 from . import profiles as profiles_bll
+from .contracts import OutMessageVM
 from .publication import (
+    chat_event_vm,
+    ensure_chat_card,
     ensure_dm_card,
     ensure_dm_cards_for_tg,
     event_vm,
+    notice_admins,
     notice_dm_reply_cards,
+    notice_dm_tracked,
     refresh_content,
 )
 
@@ -116,15 +122,21 @@ async def _tick(app) -> None:
     with app.db.session() as s:
         now = now_utc()
 
-        # напоминания (события и опросы) — reply'ем на карточку
+        # напоминания (события и опросы): reply на карточку или в ЛС при чат-карточках;
+        # при TG-группе — reply'ем на общую карточку в группе
+        skip_tg = bool(cfg.tg_card_chat_id)
         for r in repo.due_reminders(s, now):
             if r.content_type == "poll":
                 poll = repo.get_poll(s, r.content_id)
                 if poll is not None and poll.status == "active" and not poll.cancelled:
                     hours = r.kind.lstrip("h")
                     text = polls_bll.poll_reminder_text(s, cfg, poll, hours)
-                    notice_dm_reply_cards(s, cfg, text, content_type="poll",
-                                          content_id=poll.id, unique=f"rem{r.id}")
+                    if cfg.card_chat_peer:
+                        notice_dm_tracked(s, cfg, text, content_type="poll",
+                                          content_id=poll.id, skip_tg=skip_tg)
+                    else:
+                        notice_dm_reply_cards(s, cfg, text, content_type="poll",
+                                              content_id=poll.id, unique=f"rem{r.id}")
             else:
                 event = repo.get_event(s, r.content_id)
                 if event is not None and event.status == "active" and not event.cancelled:
@@ -132,9 +144,30 @@ async def _tick(app) -> None:
                     yes = len([e for e in vm.lists[0].entries if not e.struck_at])
                     hours = r.kind.lstrip("h")
                     text = f"⏰ Через {hours} ч — «{event.title}». Придут: {yes}."
-                    notice_dm_reply_cards(s, cfg, text, content_type="event",
-                                          content_id=event.id, unique=f"rem{r.id}")
+                    if cfg.card_chat_peer:
+                        notice_dm_tracked(s, cfg, text, content_type="event",
+                                          content_id=event.id, skip_tg=skip_tg)
+                    else:
+                        notice_dm_reply_cards(s, cfg, text, content_type="event",
+                                              content_id=event.id, unique=f"rem{r.id}")
+            if cfg.tg_card_chat_id:
+                card = repo.get_chat_post(s, r.content_type, r.content_id, "tg")
+                if card is not None and card.status == "ok" and card.message_id:
+                    vm_rem = OutMessageVM(kind="notice", text=text, reply_to=card.message_id)
+                    repo.enqueue_job(
+                        s, op="send", platform="tg", chat_id=str(cfg.tg_card_chat_id),
+                        view_model=vm_rem.to_dict(),
+                        idempotency_key=f"rem:{r.id}:group",
+                    )
             repo.mark_reminder_done(s, r.id)
+        s.commit()
+
+    # ежемесячные взносы (идемпотентно: только тем, у кого нет начисления за месяц)
+    with app.db.session() as s:
+        fee_alerts = fees_bll.ensure_accruals_for_active(s, cfg, now_utc())
+        for person_id, text in fee_alerts:
+            notice_admins(s, cfg, text, unique=f"debt{person_id}",
+                          admins=app.admins_vk)
         s.commit()
 
     # авто-закрытие опросов (по сроку; один раз — после переоткрытия не долбим)
@@ -184,15 +217,30 @@ async def _tick(app) -> None:
             app.reconcile_cursor = (cursor + RECONCILE_BATCH) % len(contents)
             for ctype, cid in batch:
                 refresh_content(s, cfg, ctype, cid)
-        for sub, acc in repo.active_subscriptions(s):
+        if cfg.card_chat_peer:
             for ev in repo.open_events(s):
-                ensure_dm_card(s, cfg, ev, acc.id, acc.platform_user_id)
+                ensure_chat_card(s, cfg, "event", ev.id, chat_event_vm(s, cfg, ev))
             for p in repo.open_polls(s):
-                polls_bll.ensure_poll_card(s, cfg, p.id, acc.id, "vk",
-                                           str(acc.platform_user_id))
-        for acc in repo.tg_linked_accounts(s):
-            if acc.tg_dm_notifications:
-                ensure_dm_cards_for_tg(s, cfg, acc)
+                ensure_chat_card(s, cfg, "poll", p.id, polls_bll.chat_poll_vm(s, cfg, p.id))
+        else:
+            for sub, acc in repo.active_subscriptions(s):
+                for ev in repo.open_events(s):
+                    ensure_dm_card(s, cfg, ev, acc.id, acc.platform_user_id)
+                for p in repo.open_polls(s):
+                    polls_bll.ensure_poll_card(s, cfg, p.id, acc.id, "vk",
+                                               str(acc.platform_user_id))
+        if cfg.tg_card_chat_id:
+            for ev in repo.open_events(s):
+                ensure_chat_card(s, cfg, "event", ev.id, chat_event_vm(s, cfg, ev),
+                                 platform="tg", chat_id=str(cfg.tg_card_chat_id))
+            for p in repo.open_polls(s):
+                ensure_chat_card(s, cfg, "poll", p.id,
+                                 polls_bll.chat_poll_vm(s, cfg, p.id),
+                                 platform="tg", chat_id=str(cfg.tg_card_chat_id))
+        if not cfg.tg_card_chat_id:
+            for acc in repo.tg_linked_accounts(s):
+                if acc.tg_dm_notifications:
+                    ensure_dm_cards_for_tg(s, cfg, acc)
         s.commit()
 
     # авто-закрытие записи (срабатывает один раз: после переоткрытия не долбим)

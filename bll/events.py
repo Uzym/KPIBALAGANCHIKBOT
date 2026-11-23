@@ -282,7 +282,8 @@ def delete_event(s, cfg: Config, event_id: int) -> str | None:
     if event is None:
         return "Событие не найдено."
     # карточки/уведомления — удалить у всех через outbox
-    for post in repo.posts_for_content(s, "event", event_id, ["dm_card", "dm_notice"]):
+    for post in repo.posts_for_content(s, "event", event_id,
+                                       ["dm_card", "dm_notice", "chat_card"]):
         repo.cancel_pending_jobs_for_post(s, post.id)
         if post.message_id and post.status == "ok":
             repo.enqueue_job(

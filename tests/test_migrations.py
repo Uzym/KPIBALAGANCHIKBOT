@@ -35,11 +35,11 @@ def _add_col(col_name):
 
 def test_fresh_db_stamps_current(monkeypatch, tmp_path):
     db = make_db(tmp_path)
-    monkeypatch.setattr(mig, "CURRENT_VERSION", 5)
+    monkeypatch.setattr(mig, "CURRENT_VERSION", 6)
     assert mig.apply_migrations(db.engine) == []
     with db.engine.connect() as c:
         v = c.execute(text("SELECT version FROM schema_version WHERE id=1")).scalar()
-    assert v == 5
+    assert v == 6
 
 
 def test_migration_applied_and_tracked(monkeypatch, tmp_path):
@@ -58,15 +58,30 @@ def test_migration_applied_and_tracked(monkeypatch, tmp_path):
 
 
 def test_v2_migration_idempotent_on_fresh_schema(tmp_path):
-    """Реальная миграция v2 на «старой» БД: колонки уже есть (create_all) — no-op, версия растёт."""
+    """Реальные миграции v2–v6 на «старой» БД: колонки уже есть (create_all) — no-op, версия растёт."""
     db = make_db(tmp_path)
     _set_version(db, 1)  # имитируем БД до релиза v2
-    assert mig.apply_migrations(db.engine) == ["auto_closed (переоткрытие записи)"]
+    applied = mig.apply_migrations(db.engine)
+    assert applied == [
+        "auto_closed (переоткрытие записи)",
+        "v6: оплата/имена/заявки TG (fee_entries, display_override, fee_alerted, banned)",
+        "app_meta (мемоизация админов)",
+        "panel_sessions (вход в админ-панель по одобрению)",
+        "dm_messages (переписка с админом в панели)",
+    ]
     assert "auto_closed" in _columns(db, "events")
     assert "auto_closed" in _columns(db, "polls")
+    assert "display_override" in _columns(db, "persons")
+    assert "fee_alerted" in _columns(db, "persons")
+    assert "banned" in _columns(db, "subscriptions")
     with db.engine.connect() as c:
         v = c.execute(text("SELECT version FROM schema_version WHERE id=1")).scalar()
-    assert v == 2
+        tables = [r[0] for r in c.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table'"))]
+    assert v == 6
+    assert "app_meta" in tables
+    assert "panel_sessions" in tables
+    assert "dm_messages" in tables
     # повторный запуск — no-op
     assert mig.apply_migrations(db.engine) == []
 

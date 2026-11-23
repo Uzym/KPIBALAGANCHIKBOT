@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import re
@@ -12,7 +13,9 @@ import time
 
 from bll import announcements as ann_bll
 from bll import events as events_bll
+from bll import fees as fees_bll
 from bll import linking as linking_bll
+from bll import panel as panel_bll
 from bll import polls as polls_bll
 from bll import profiles as profiles_bll
 from bll import rsvp as rsvp_bll
@@ -25,6 +28,7 @@ from bll.contracts import (
     OutMessageVM,
 )
 from bll.timeparse import parse_event_command
+from bll.publication import ensure_dm_cards_for_tg, notice_admins, person_name
 from dal import repositories as repo
 
 from .renderers import render_vk
@@ -69,6 +73,11 @@ ADMIN_HELP_TEXT = (
     "🔄 Синхронизация — вручную сверить админов и членство (академ)\n"
     "🔗 /связать <vk_id> <tg_id> — ручная линковка аккаунтов\n"
     "👥 /подписчики — статистика подписок\n"
+    "💰 /оплата — свой долг; /оплата <кто> <сумма> <за что> — фиксация платежа\n"
+    "💰 /долги — список должников; /история <кто> — операции человека\n"
+    "🚫 /бан <кто> — запретить доступ (TG); /разбан <кто> — снять бан\n"
+    "✏️ /имя <id> <имя> — переименовать человека (видно во всех списках)\n"
+    "🔐 /панель — токены админ-панели; /панель отозвать <id>\n"
     "🔁 Режим участника / админа — переключение клавиатуры\n"
     "Академ: исключи человека из сообщества — бот сам поставит паузу и уведомит."
 )
@@ -191,12 +200,13 @@ async def send_menu(app, uid: int) -> None:
                 ["➕ Событие", "➕ Опрос", "📢 Объявление"],
                 ["📋 События", "📋 Опросы", "👥 Подписчики"],
                 ["🔗 Связать аккаунты", "🔄 Синхронизация"],
-                ["🔁 Режим участника", "❓ Помощь"],
+                ["🔁 Режим участника", "❓ Помощь", "💰 Долги"],
             ],
         )
         return
 
-    rows = [["📅 События", "🗳 Голосования"], ["⚙️ Настройки", "📩 Написать админам"]]
+    rows = [["📅 События", "🗳 Голосования"], ["⚙️ Настройки", "📩 Написать админам"],
+            ["💰 Оплата"]]
     if is_admin:
         rows.append(["🔁 Режим админа"])
     if sub is not None and sub.status == "stopped":
@@ -230,13 +240,40 @@ async def handle_vk_update(app, update: dict) -> None:
         await _on_button(app, update.get("object", {}))
 
 
+async def _readonly_chat(app, peer_id: int, from_id: int, m: dict) -> None:
+    """Чат только для чтения: удаляем сообщение человека, ему в ЛС — кнопка «Я понял»."""
+    cmid = m.get("conversation_message_id") or m.get("id")
+    if cmid:
+        try:
+            await app.vk.delete_message(peer_id, int(cmid), in_chat=True)
+        except Exception as e:
+            log.warning("readonly delete в %s не прошёл: %s", peer_id, e)
+    kb = {
+        "inline": True,
+        "buttons": [[{
+            "action": {"type": "callback", "label": "Я понял",
+                       "payload": json.dumps({"a": "readonly_ack"})},
+        }]],
+    }
+    try:
+        await app.vk.send_message(
+            from_id, "Здесь писать нельзя — этот чат только для чтения.",
+            keyboard=kb,
+        )
+    except Exception as e:
+        log.warning("readonly notice to %s failed: %s", from_id, e)
+
+
 async def _on_message(app, m: dict) -> None:
     from_id = m.get("from_id")
     peer_id = m.get("peer_id")
     if from_id is None or peer_id is None or from_id == -app.cfg.vk_group_id:
         return
     if peer_id >= CHAT_PEER_BASE:
-        log.debug("сообщение из беседы %s — игнорируем (v5: только ЛС)", peer_id)
+        if peer_id in app.cfg.readonly_chat_peers:
+            await _readonly_chat(app, peer_id, from_id, m)
+        else:
+            log.debug("сообщение из беседы %s — игнорируем", peer_id)
         return
 
     text = (m.get("text") or "").strip()
@@ -305,6 +342,18 @@ async def _on_dm_message(app, msg: IncomingMessage) -> None:
     text = msg.text
     state_key = ("vk", uid)
     low = text.lower() if text else ""
+
+    # переписка в панели: фиксируем каждое входящее ЛС
+    try:
+        with app.db.session() as s:
+            media_json = None
+            if msg.media:
+                media_json = json.dumps(
+                    [dataclasses.asdict(m) for m in msg.media], ensure_ascii=False)
+            repo.add_dm_message(s, "vk", uid, "in", text or "", media_json)
+            s.commit()
+    except Exception as e:
+        log.warning("dm record vk %s: %s", uid, e)
 
     # ответ админа на обращение (reply на пересланное сообщение) — персист в БД
     if msg.is_admin and msg.reply_to_message_id:
@@ -413,6 +462,11 @@ async def _on_dm_message(app, msg: IncomingMessage) -> None:
     if await _menu_route(app, msg):
         return
 
+    # оплата: свой долг — доступно всем (без аргументов)
+    if low in ("/оплата", "/платёж", "/платеж"):
+        await _member_fees(app, uid)
+        return
+
     # команды
     if text.startswith("/"):
         if await _admin_commands(app, msg):
@@ -485,6 +539,13 @@ async def _menu_route(app, msg: IncomingMessage) -> bool:
             "⏹ Закончить, «Начать» или /start — выйти из режима.",
             [["⏹ Закончить"]],
         )
+    elif t == "💰 Оплата":
+        await _member_fees(app, uid)
+    elif t == "💰 Долги" and uid in app.admins_vk:
+        with app.db.session() as s:
+            text = fees_bll.debtors_text(s, app.cfg)
+            s.commit()
+        await app.vk.send_message(uid, text)
     elif t == "🔄 Синхронизация" and uid in app.admins_vk:
         lines = await profiles_bll.sync_people(app)
         app.membership_cache.clear()
@@ -536,6 +597,11 @@ async def _forward_appeal(app, msg: IncomingMessage) -> None:
     if msg.media:
         body += "\n📎 вложения: " + ", ".join(m.kind for m in msg.media)
     with app.db.session() as s:
+        acc = repo.ensure_account(s, "vk", uid)
+        if acc.person_id:
+            pn = person_name(s, acc.person_id)
+            if pn:
+                name = pn  # переопределённое имя — во всех текстовках
         appeal = repo.create_appeal(s, "vk", uid, name)
         appeal_id = appeal.id
         s.commit()
@@ -611,6 +677,143 @@ def _poll_text_vote(s, cfg, uid: int, poll_id: int, text: str) -> str:
 # --- команды главы -------------------------------------------------------------------
 
 
+async def _member_fees(app, uid: int) -> None:
+    """Просмотр своего долга (доступно участникам)."""
+    with app.db.session() as s:
+        acc = repo.ensure_account(s, "vk", uid)
+        if acc.person_id is None:
+            s.commit()
+            await app.vk.send_message(uid, "Сначала /start.")
+            return
+        text = fees_bll.debt_overview(s, app.cfg, acc.person_id)
+        s.commit()
+    await app.vk.send_message(uid, text)
+
+
+async def _admin_payment(app, uid: int, raw: str) -> None:
+    """/оплата <кто> <сумма> <за что> — фиксация платежа; минус — отмена (долг растёт)."""
+    m = re.match(r"^/(?:оплата|платёж|платеж)\s+(.+?)\s+(-?\d+)\s*(.*)$", raw,
+                 flags=re.IGNORECASE)
+    if not m:
+        await app.vk.send_message(
+            uid, "Формат: /оплата <кто> <сумма> <за что>\n"
+                 "Пример: /оплата 253519572 200 взнос за сентябрь\n"
+                 "(«кто» — имя, логин TG (@ник) или id; отрицательная сумма — отмена)")
+        return
+    ref = m.group(1).strip()
+    amount = int(m.group(2))
+    label = m.group(3).strip()
+    await _resolve_ref(app, uid, ref, "pay", {"amount": amount, "label": label})
+
+
+def _person_label(s, person) -> str:
+    name = person_name(s, person.id) or f"#{person.id}"
+    tags = []
+    if repo.vk_account_for_person(s, person.id):
+        tags.append("VK")
+    if repo.tg_account_for_person(s, person.id):
+        tags.append("TG")
+    return f"{name} ({', '.join(tags)})" if tags else name
+
+
+async def _pick_person(app, uid: int, ref: str, persons: list, cmd: str,
+                       args: dict | None = None) -> None:
+    """Несколько кандидатов по «кто» — inline-кнопки выбора."""
+    with app.db.session() as s:
+        labels = [_person_label(s, p) for p in persons[:10]]
+        s.commit()
+    kb = {
+        "inline": True,
+        "buttons": [[{
+            "action": {"type": "callback", "label": label,
+                       "payload": json.dumps({"a": "person_pick", "c": cmd,
+                                              "e": p.id, "v": json.dumps(args or {})})},
+        }] for p, label in zip(persons[:10], labels)],
+    }
+    await app.vk.send_message(
+        uid, f"По «{ref}» несколько совпадений — выбери, кого ты имел в виду:",
+        keyboard=kb,
+    )
+
+
+async def _apply_person_action(app, uid: int, cmd: str, person, args: dict) -> str:
+    """Действие по выбранной персоне (pay|history|name|ban|unban). Текст результата."""
+    if cmd == "pay":
+        amount = int(args.get("amount", 0))
+        label = str(args.get("label") or "")
+        with app.db.session() as s:
+            admin_acc = repo.ensure_account(s, "vk", uid)
+            err, alert = fees_bll.record_payment(s, app.cfg, person.id, amount,
+                                                 label, created_by=admin_acc.id)
+            if err:
+                s.commit()
+                return f"Не получилось: {err}"
+            debt = fees_bll.debt_of(s, person.id)
+            name = fees_bll.display_name(person)
+            s.commit()
+            if alert:
+                notice_admins(s, app.cfg, alert, unique=f"debt{person.id}",
+                              admins=app.admins_vk)
+                s.commit()
+        return f"✅ {name}: {amount} ₽ ({label or 'платёж'}). Теперь долг: {debt} ₽."
+    if cmd == "history":
+        with app.db.session() as s:
+            text = fees_bll.history_text(s, app.cfg, person.id)
+            s.commit()
+        return text
+    if cmd == "name":
+        new_name = str(args.get("name") or "")
+        with app.db.session() as s:
+            p = repo.get_person(s, person.id)
+            old = person_name(s, p.id) or f"#{p.id}"
+            p.display_override = new_name or None
+            s.commit()
+        return (f"✏️ Имя изменено: {old} → {new_name}." if new_name
+                else f"↩️ Имя сброшено: {old} (теперь из ВК).")
+    if cmd in ("ban", "unban"):
+        with app.db.session() as s:
+            tg_acc = repo.tg_account_for_person(s, person.id)
+            if tg_acc is None:
+                s.commit()
+                return f"У «{person_name(s, person.id) or person.id}» нет TG-аккаунта."
+            sub = repo.get_subscription(s, tg_acc.id)
+            if sub is None:
+                sub = repo.upsert_subscription(s, tg_acc.id, "blocked")
+            if cmd == "ban":
+                sub.banned = True
+                sub.status = "blocked"
+                notice = "⛔ Ты заблокирован. Если это ошибка — свяжись с руководителем клуба."
+            else:
+                sub.banned = False
+                notice = "🔓 Бан снят. Напиши /start, чтобы вернуться."
+            name = tg_acc.display_name or str(tg_acc.platform_user_id)
+            s.commit()
+            try:
+                await app.tg.send_message(tg_acc.platform_user_id, notice)
+            except Exception as e:
+                log.warning("ban/unban notice failed: %s", e)
+        return (f"🚫 Забанен: {name} (TG)." if cmd == "ban"
+                else f"🔓 Бан снят: {name}.")
+    return "Неизвестное действие."
+
+
+async def _resolve_ref(app, uid: int, ref: str, cmd: str,
+                       args: dict | None = None) -> None:
+    """0 кандидатов → «никого не нашли»; 1 → применить; >1 → кнопки выбора."""
+    with app.db.session() as s:
+        persons = repo.find_persons_by_ref(s, ref)
+        s.commit()
+    if not persons:
+        await app.vk.send_message(
+            uid, f"Никого не нашёл по «{ref}». Уточни: имя, логин TG (@ник), id ВК или TG.")
+        return
+    if len(persons) > 1:
+        await _pick_person(app, uid, ref, persons, cmd, args)
+        return
+    text = await _apply_person_action(app, uid, cmd, persons[0], args or {})
+    await app.vk.send_message(uid, text)
+
+
 async def _admin_commands(app, msg: IncomingMessage) -> bool:
     """Возвращает True, если команда обработана как админская."""
     if not msg.is_admin:
@@ -628,6 +831,78 @@ async def _admin_commands(app, msg: IncomingMessage) -> bool:
 
     if low.startswith("/help") or low.startswith("/помощь"):
         await app.vk.send_message(uid, ADMIN_HELP_TEXT)
+        return True
+
+    if low.startswith("/оплата") or low.startswith("/платёж") or low.startswith("/платеж"):
+        await _admin_payment(app, uid, msg.text)
+        return True
+
+    if low.startswith("/долги") or low.startswith("/debts"):
+        with app.db.session() as s:
+            text = fees_bll.debtors_text(s, app.cfg)
+            s.commit()
+        await app.vk.send_message(uid, text)
+        return True
+
+    if low.startswith("/история") or low.startswith("/history"):
+        m = re.match(r"^/(?:история|history)\s+(.+)$", msg.text, flags=re.IGNORECASE)
+        if not m:
+            await app.vk.send_message(uid, "Формат: /история <кто> (имя, логин TG или id)")
+            return True
+        await _resolve_ref(app, uid, m.group(1).strip(), "history")
+        return True
+
+    if low.startswith("/имя") or low.startswith("/name"):
+        m = re.match(r"^/(?:имя|name)\s+(.+?)\s*$", msg.text, flags=re.IGNORECASE)
+        if not m:
+            await app.vk.send_message(
+                uid, "Формат: /имя <кто> <новое имя>\n"
+                     "Пример: /имя 253519572 Александр\n"
+                     "/имя <кто> — сброс (вернётся имя из ВК).")
+            return True
+        parts = m.group(1).split(None, 1)
+        ref = parts[0].strip()
+        new_name = parts[1].strip() if len(parts) > 1 else ""
+        await _resolve_ref(app, uid, ref, "name", {"name": new_name})
+        return True
+
+    if low.startswith("/бан") or low.startswith("/ban"):
+        m = re.match(r"^/(?:бан|ban)\s+(.+)$", msg.text, flags=re.IGNORECASE)
+        if not m:
+            await app.vk.send_message(uid, "Формат: /бан <кто> (имя, логин TG или id) — "
+                                             "запретить доступ к боту.")
+            return True
+        await _resolve_ref(app, uid, m.group(1).strip(), "ban")
+        return True
+
+    if low.startswith("/разбан") or low.startswith("/unban"):
+        m = re.match(r"^/(?:разбан|unban)\s+(.+)$", msg.text, flags=re.IGNORECASE)
+        if not m:
+            await app.vk.send_message(uid, "Формат: /разбан <кто> (имя, логин TG или id).")
+            return True
+        await _resolve_ref(app, uid, m.group(1).strip(), "unban")
+        return True
+
+    if low.startswith("/панель"):
+        m = re.match(r"^/панель(?:\s+отозвать\s+(\d+))?$", msg.text, flags=re.IGNORECASE)
+        if not m:
+            await app.vk.send_message(uid, "Формат: /панель — активные токены панели; "
+                                             "/панель отозвать <id> — отозвать токен.")
+            return True
+        revoke_id = int(m.group(1)) if m.group(1) else 0
+        with app.db.session() as s:
+            if revoke_id:
+                ok = panel_bll.revoke_login(s, revoke_id)
+                s.commit()
+                await app.vk.send_message(
+                    uid, f"🔐 Токен #{revoke_id} отозван." if ok
+                    else f"Сессия #{revoke_id} не найдена или не активна.")
+            else:
+                lines = panel_bll.session_lines(s, "approved")
+                s.commit()
+                await app.vk.send_message(
+                    uid, "🔐 Активные токены панели:\n"
+                         + ("\n".join(lines) if lines else "— нет активных"))
         return True
 
     if low.startswith("/удалить") or low.startswith("/delete"):
@@ -845,6 +1120,131 @@ async def _on_button_impl(app, obj: dict) -> None:
         c = repo.get_content(s, content_id)
         return c.kind if c else None
 
+    # нажата ли кнопка на общей карточке беседы (тогда нет персональных клавиатур)
+    cmid_obj = obj.get("conversation_message_id")
+    chat_card = False
+    if cmid_obj:
+        with app.db.session() as s:
+            post = repo.find_post_by_message(s, "vk_chat", str(peer_id or user_id),
+                                             int(cmid_obj))
+            chat_card = post is not None and post.kind == "chat_card"
+            s.commit()
+
+    if action in ("vote", "remove_vote", "poll", "poll_clear") and chat_card:
+        if user_id not in app.admins_vk and not await is_member_cached(app, user_id):
+            await toast("Кнопки — только для членов клуба")
+            return
+
+    if action == "readonly_ack":
+        # «Я понял»: удаляем ЛС-оповещение о read-only чате
+        cmid = obj.get("conversation_message_id")
+        if cmid:
+            try:
+                await app.vk.delete_message(user_id, int(cmid), in_chat=False)
+            except Exception as e:
+                log.debug("readonly ack delete failed: %s", e)
+        return
+
+    if action == "person_pick":
+        # выбор кандидата из кнопок (неоднозначный «кто»)
+        if not require_admin():
+            await toast("Нет прав")
+            return
+        cmd = payload.get("c")
+        pid = int(content_id or 0) if content_id else 0
+        args: dict = {}
+        if isinstance(value, str):
+            try:
+                args = json.loads(value)
+            except ValueError:
+                args = {}
+        elif isinstance(value, dict):
+            args = value
+        with app.db.session() as s:
+            person = repo.get_person(s, pid)
+            s.commit()
+        if person is None:
+            await toast("Человек не найден")
+            return
+        text = await _apply_person_action(app, user_id, cmd, person, args)
+        if cmd == "history":
+            await app.vk.send_message(user_id, text)
+        else:
+            await toast(text[:90])
+        return
+
+    if action == "panel_req":
+        # одобрение/отказ входа в админ-панель (payload: a=panel_req, e=session_id, v=yes|no)
+        if not require_admin():
+            await toast("Нет прав")
+            return
+        sid = int(content_id or 0) if content_id else 0
+        with app.db.session() as s:
+            if value == "yes":
+                err = panel_bll.approve_login(s, sid, user_id)
+                if not err:
+                    sess = repo.get_panel_session(s, sid)
+                    panel_bll.log_to_tech(
+                        s, app.cfg,
+                        f"🔑 Панель: вход одобрен (заявка #{sid}, "
+                        f"{sess.label or 'без подписи'} · IP {sess.ip})")
+            else:
+                err = panel_bll.deny_login(s, sid, user_id)
+                if not err:
+                    panel_bll.log_to_tech(
+                        s, app.cfg, f"🚫 Панель: вход отклонён (заявка #{sid})")
+            s.commit()
+        if not err:
+            await toast("Одобрил ✅" if value == "yes" else "Отказал")
+        else:
+            await toast(err)
+        return
+
+    if action == "tgreq":
+        # одобрение/отказ TG-заявки (payload: a=tgreq, e=tg_user_id, v=yes|no)
+        if not require_admin():
+            await toast("Нет прав")
+            return
+        tguid = int(content_id or 0) if content_id else 0
+        if tguid <= 0:
+            await toast("Заявка не найдена")
+            return
+        with app.db.session() as s:
+            tacc = repo.get_account_by_platform_id(s, "tg", tguid)
+            if tacc is None:
+                s.commit()
+                await toast("Аккаунт не найден")
+                return
+            if value == "yes":
+                if tacc.person_id is None:
+                    person = repo.get_or_create_person(
+                        s, display_name=tacc.display_name or "TG"
+                    )
+                    tacc.person_id = person.id
+                repo.upsert_subscription(s, tacc.id, "active")
+                s.commit()
+                try:
+                    await app.tg.send_message(
+                        tguid, "✅ Добро пожаловать в клуб! События, опросы и "
+                               "объявления — карточками в этом чате."
+                    )
+                except Exception as e:
+                    log.warning("tg approve notice failed: %s", e)
+                with app.db.session() as s2:
+                    tacc2 = repo.get_account_by_platform_id(s2, "tg", tguid)
+                    ensure_dm_cards_for_tg(s2, app.cfg, tacc2)
+                    s2.commit()
+                await toast("Пустил")
+            else:
+                repo.upsert_subscription(s, tacc.id, "blocked")
+                s.commit()
+                try:
+                    await app.tg.send_message(tguid, "Твоя заявка отклонена.")
+                except Exception as e:
+                    log.warning("tg reject notice failed: %s", e)
+                await toast("Отказал")
+        return
+
     if action in ("vote", "remove_vote", "poll", "poll_clear"):
         # защита от повтора ОДНОГО И ТОГО ЖЕ event'а (VK иногда дублирует доставку);
         # разные нажатия имеют разные event_id и не блокируются
@@ -856,12 +1256,23 @@ async def _on_button_impl(app, obj: dict) -> None:
     if action in ("vote", "remove_vote"):
         with app.db.session() as s:
             acc = repo.ensure_account(s, "vk", user_id)
-            if not profiles_bll.ensure_votable_dm(s, acc.id):
+            # в общей карточке беседы членство уже проверено выше — подписка не нужна
+            if not chat_card and not profiles_bll.ensure_votable_dm(s, acc.id):
                 s.commit()
                 await toast("Сначала /start")
                 return
             if action == "vote":
-                key = rsvp_bll.cast_vote(s, app.cfg, "vk", user_id, content_id, value)
+                if chat_card:
+                    # на общей карточке повторное нажатие на свой выбор = снять
+                    v = repo.get_vote(s, content_id, acc.id)
+                    if v is not None and v.answer == value:
+                        key = rsvp_bll.remove_vote(s, app.cfg, "vk", user_id, content_id)
+                    else:
+                        key = rsvp_bll.cast_vote(s, app.cfg, "vk", user_id,
+                                                 content_id, value)
+                else:
+                    key = rsvp_bll.cast_vote(s, app.cfg, "vk", user_id,
+                                             content_id, value)
             else:
                 key = rsvp_bll.remove_vote(s, app.cfg, "vk", user_id, content_id)
             s.commit()
@@ -871,7 +1282,7 @@ async def _on_button_impl(app, obj: dict) -> None:
     if action == "poll":
         with app.db.session() as s:
             acc = repo.ensure_account(s, "vk", user_id)
-            if not profiles_bll.ensure_votable_dm(s, acc.id):
+            if not chat_card and not profiles_bll.ensure_votable_dm(s, acc.id):
                 s.commit()
                 await toast("Сначала /start")
                 return
@@ -887,7 +1298,7 @@ async def _on_button_impl(app, obj: dict) -> None:
     if action == "poll_clear":
         with app.db.session() as s:
             acc = repo.ensure_account(s, "vk", user_id)
-            if not profiles_bll.ensure_votable_dm(s, acc.id):
+            if not chat_card and not profiles_bll.ensure_votable_dm(s, acc.id):
                 s.commit()
                 await toast("Сначала /start")
                 return
@@ -908,9 +1319,11 @@ async def _on_button_impl(app, obj: dict) -> None:
                 result = events_bll.publish(s, app.cfg, content_id)
             s.commit()
         if isinstance(result, dict):
+            where = (f"беседа: {result.get('chat', 0)} карточек"
+                     if app.cfg.card_chat_peer else f"ЛС {result['dm']}")
             await app.vk.send_message(
                 user_id,
-                f"Опубликовано: ЛС {result['dm']}. Доставка — в прогрессе."
+                f"Опубликовано: {where}. Доставка — в прогрессе."
             )
         else:
             await app.vk.send_message(user_id, str(result))
