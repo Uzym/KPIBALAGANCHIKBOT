@@ -191,3 +191,23 @@ docker compose up -d --build
 Откат кода на старую версию совместим со схемой: миграции только добавляют
 колонки/индексы, ничего не удаляют и не переименовывают — старая версия кода
 продолжит работать на новой схеме.
+
+## 12. Веб-панель через nginx (домен votilya.ru)
+
+Панель (API + SPA) крутится в том же контейнере бота на :8080 (в контейнере
+слушает 0.0.0.0, наружу публикуется только на 127.0.0.1 хоста — см. compose).
+Наружу смотрит nginx: **https://votilya.ru:8450** (порт 443 занят SNI-роутером
+Amnezia/SilverBullet, поддомен в DNS не заведён — потому отдельный порт,
+сертификат тот же Let's Encrypt votilya.ru).
+
+- Конфиг: /etc/nginx/sites-available/club-panel (proxy → 127.0.0.1:8080)
+- Доступ: https://votilya.ru:8450/?key=<PANEL_SECRET из .env> (cookie на 30 дней;
+  или Basic Auth с паролем = PANEL_SECRET). Без ключа — 401.
+- /api/health открыт без ключа (для мониторинга).
+- Смена секрета: правка PANEL_SECRET в .env + docker compose up -d (recreate).
+
+Когда появится DNS-запись для поддомена (например club.votilya.ru → A 89.125.17.194):
+1) certbot certonly --webroot -w /var/www/html -d club.votilya.ru
+2) в /etc/nginx/streams-enabled/sb-sni.conf добавить club.votilya.ru → 127.0.0.1:8445
+3) server block на 127.0.0.1:8445 ssl с новым cert → proxy 127.0.0.1:8080
+4) systemctl reload nginx — панель станет на https://club.votilya.ru без порта.
