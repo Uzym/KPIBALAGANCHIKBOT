@@ -5,10 +5,18 @@
 
   let profile = null;
   let loading = true;
+  let announcementsOn = true;
 
   async function load() {
     profile = await api.getProfile();
+    announcementsOn = profile?.settings?.announcements ?? true;
     loading = false;
+  }
+  load();
+
+  function toggleAnnouncements() {
+    announcementsOn = !announcementsOn;
+    // TODO: отправить на API
   }
   load();
 </script>
@@ -57,9 +65,11 @@
             <div class="title">Объявления в личку</div>
             <div class="sub">В беседе видно всегда</div>
           </div>
-          <span class="tag status-open">Вкл</span>
+          <button class="toggle" class:on={announcementsOn} role="switch"
+                  aria-checked={announcementsOn}
+                  aria-label="Объявления в личку"
+                  onclick={toggleAnnouncements}></button>
         </div>
-
       </article>
     </div>
   {/if}

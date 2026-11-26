@@ -83,7 +83,25 @@
         </div>
         <div class="form-field">
           <label for="pay-what">{payType === 'pay' ? 'За что' : 'За что (трата)'}</label>
-          <input id="pay-what" bind:value={formData.what} placeholder={payType === 'pay' ? 'Наличные' : 'Реквизит, костюм…'}>
+          <select id="pay-what" bind:value={formData.what}>
+            {#if payType === 'pay'}
+              <option value="" disabled>Выбери…</option>
+              <option value="Наличные">Наличные</option>
+              <option value="Перевод">Перевод</option>
+              <option value="Карта">Карта</option>
+              <option value="__custom">Другое…</option>
+            {:else}
+              <option value="" disabled>Выбери…</option>
+              <option value="Костюм">Костюм</option>
+              <option value="Реквизит">Реквизит</option>
+              <option value="Транспорт">Транспорт</option>
+              <option value="__custom">Другое…</option>
+            {/if}
+          </select>
+          {#if formData.what === '__custom'}
+            <input bind:value={formData.what} placeholder="Введи описание"
+                   style="margin-top:6px;" aria-label="Своё описание">
+          {/if}
         </div>
         <button type="submit" class="btn btn-primary btn-sm">
           {payType === 'pay' ? 'Записать платёж' : 'Начислить трату'}

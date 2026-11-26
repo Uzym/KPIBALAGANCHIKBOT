@@ -24,7 +24,11 @@
       });
 
   async function vote(eventId, answer) {
-    await api.vote(eventId, answer);
+    const updated = await api.vote(eventId, answer);
+    if (updated && updated.id) {
+      const idx = events.findIndex(e => e.id === eventId);
+      if (idx >= 0) events[idx] = updated;
+    }
     events = [...events];
   }
 

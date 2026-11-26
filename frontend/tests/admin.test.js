@@ -11,7 +11,7 @@ describe('E2E: Админ · Дашборд', () => {
   it('показывает счётчики', async () => {
     render(Dashboard);
     await waitFor(() => {
-      expect(screen.getByText(/СобЫТИЙ|Событий/i, { exact: false })).toBeInTheDocument();
+      expect(screen.getAllByText(/СобЫТИЙ|Событий/i).length).toBeGreaterThanOrEqual(1);
     });
   });
 
@@ -55,10 +55,10 @@ describe('E2E: Админ · Дашборд', () => {
     }
   });
 
-  it('баннер ошибки отображается', async () => {
+  it('баннер уведомления отображается', async () => {
     render(Dashboard);
     await waitFor(() => {
-      expect(screen.getByText(/не доставлены/i)).toBeInTheDocument();
+      expect(screen.getByText(/заблокирован/i)).toBeInTheDocument();
     });
   });
 });

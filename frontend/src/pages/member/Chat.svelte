@@ -4,10 +4,21 @@
   let messages = [];
   let input = '';
 
+  // восстановить из localStorage
+  const saved = localStorage.getItem('chat_msgs');
+  if (saved) {
+    try { messages = JSON.parse(saved); } catch {}
+  }
+
   async function load() {
-    messages = await api.getMessages();
+    const remote = await api.getMessages();
+    if (Array.isArray(remote) && remote.length > 0) messages = remote;
   }
   load();
+
+  function save() {
+    localStorage.setItem('chat_msgs', JSON.stringify(messages.slice(-50)));
+  }
 
   function send() {
     const text = input.trim();
@@ -16,6 +27,7 @@
     messages.push({ id: Date.now(), from: 'me', text, time: now });
     messages = messages;
     input = '';
+    save();
     api.sendMessage(text);
   }
 

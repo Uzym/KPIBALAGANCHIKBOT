@@ -17,7 +17,7 @@
 
   async function vote(pollId, optionId) {
     await api.pollVote(pollId, optionId);
-    polls = [...polls];
+    await load(); // перезагрузить с API — актуальные счётчики
   }
 
   function toggleExpand(key) {

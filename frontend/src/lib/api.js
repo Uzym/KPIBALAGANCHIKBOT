@@ -178,7 +178,7 @@ export const api = {
   },
 
   async vote(eventId, answer) {
-    const real = await apiPost(`/events/${eventId}/vote`, { answer, platform: 'web', user_id: 1 });
+    const real = await apiPost(`/events/${eventId}/vote`, { answer, platform: 'vk', user_id: 1 });
     if (real) return real;
     const ev = mock.events.find(e => e.id === eventId);
     if (ev) {
@@ -246,8 +246,11 @@ export const api = {
   },
 
   async pollVote(pollId, optionId) {
-    const real = await apiPost(`/polls/${pollId}/vote`, { option_id: optionId });
+    const real = await apiPost(`/polls/${pollId}/vote`, {
+      option_id: optionId, platform: 'vk', user_id: 1,
+    });
     if (real) return real;
+    // mock fallback
     const p = mock.polls.find(x => x.id === pollId);
     if (!p || p.status !== 'open') return p;
     const opt = p.options.find(o => o.id === optionId);

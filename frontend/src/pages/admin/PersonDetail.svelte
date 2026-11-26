@@ -15,11 +15,16 @@
 
   async function load() {
     if (!personId) return;
-    const people = await api.getPeople();
-    person = people.find(p => p.id === +personId);
-    feeHistory = await api.getPersonFees(+personId);
-    attendance = await api.getPersonAttendance(+personId);
-    loading = false;
+    try {
+      const people = await api.getPeople();
+      person = people.find(p => p.id === +personId) ?? null;
+      feeHistory = await api.getPersonFees(+personId);
+      attendance = await api.getPersonAttendance(+personId);
+    } catch (e) {
+      console.warn('person load error:', e);
+    } finally {
+      loading = false;  // ВСЕГДА снимаем loading
+    }
   }
   $: personId, load();
 
