@@ -565,6 +565,46 @@ async def start_webpanel(app, port: int):
     ]
     web_app.add_routes(routes)
 
+    # ── авторизация (если задан PANEL_SECRET) ──────────────────
+    # Панель содержит персональные данные — наружу (nginx/домен) без ключа нельзя.
+    # Доступ: ?key=SECRET в URL (ставит cookie на 30 дней) или Basic Auth (пароль = SECRET).
+    if cfg.panel_secret:
+        import base64
+        secret = cfg.panel_secret
+        cookie_max_age = 30 * 24 * 3600
+
+        @web.middleware
+        async def auth_mw(request, handler):
+            if request.path == "/api/health":  # healthcheck открыт
+                return await handler(request)
+            if request.cookies.get("panel_key") == secret:
+                return await handler(request)
+            if request.query.get("key") == secret:
+                resp = await handler(request)
+                resp.set_cookie("panel_key", secret, httponly=True,
+                                samesite="Lax", max_age=cookie_max_age)
+                return resp
+            auth = request.headers.get("Authorization", "")
+            if auth.startswith("Basic "):
+                try:
+                    decoded = base64.b64decode(auth[6:]).decode("utf-8")
+                    if decoded.split(":", 1)[-1] == secret:
+                        resp = await handler(request)
+                        resp.set_cookie("panel_key", secret, httponly=True,
+                                        samesite="Lax", max_age=cookie_max_age)
+                        return resp
+                except Exception:
+                    pass
+            if request.path.startswith("/api/"):
+                return web.json_response({"error": "unauthorized"}, status=401)
+            return web.Response(
+                status=401,
+                text="401: панель закрыта. Открой адрес с ключом: /?key=SECRET",
+            )
+
+        web_app.middlewares.append(auth_mw)
+        log.info("веб-панель: авторизация по PANEL_SECRET включена")
+
     # статика через middleware (API маршруты уже зарегистрированы выше)
     if FRONTEND_DIST.exists():
         index_path = FRONTEND_DIST / "index.html"
@@ -604,7 +644,7 @@ async def start_webpanel(app, port: int):
 
     runner = web.AppRunner(web_app)
     await runner.setup()
-    site = web.TCPSite(runner, "127.0.0.1", port)
+    site = web.TCPSite(runner, cfg.panel_host, port)
     await site.start()
-    log.info("веб-панель: http://127.0.0.1:%s (API + статика)", port)
+    log.info("веб-панель: http://%s:%s (API + статика)", cfg.panel_host, port)
     return runner

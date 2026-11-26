@@ -23,7 +23,7 @@ _ENV_KEYS = {
     "FEE_MONTHLY_RUB", "DEBT_ALERT_LIMIT_RUB",
     "READONLY_CHAT_PEERS", "CARD_CHAT_PEER",
     "TG_CARD_CHAT_ID", "TG_READONLY_CHAT_ID",
-    "PANEL_PORT", "PANEL_SECRET",
+    "PANEL_PORT", "PANEL_HOST", "PANEL_SECRET",
     "SSL_VERIFY", "SSL_CA_BUNDLE",
 }
 
@@ -78,8 +78,10 @@ class Config:
     card_chat_peer: int = 0               # беседа ВК с общими карточками (0 — карточки в ЛС)
     tg_card_chat_id: int = 0              # TG-группа с общими карточками (0 — карточки в ЛС)
     tg_readonly_chat_id: int = 0          # TG-группа только для чтения
-    # админ-панель (NiceGUI, слушает 127.0.0.1)
+    # веб-панель (aiohttp: API + SPA). Хост по умолчанию — только localhost;
+    # в Docker ставь PANEL_HOST=0.0.0.0 и публикуй порт на 127.0.0.1 хоста (под nginx)
     panel_port: int = 0                   # порт панели (0 — выключена)
+    panel_host: str = "127.0.0.1"         # адрес, на котором слушает панель
     panel_secret: str = ""                # резервный вход владельца (?key=...)
     # сеть
     ssl_verify: bool = True
@@ -138,6 +140,7 @@ class Config:
             tg_card_chat_id=int(raw.get("TG_CARD_CHAT_ID", 0) or 0),
             tg_readonly_chat_id=int(raw.get("TG_READONLY_CHAT_ID", 0) or 0),
             panel_port=int(raw.get("PANEL_PORT", 0) or 0),
+            panel_host=raw.get("PANEL_HOST", "127.0.0.1") or "127.0.0.1",
             panel_secret=raw.get("PANEL_SECRET", ""),
             ssl_verify=_bool(raw.get("SSL_VERIFY", ""), True),
             ssl_ca_bundle=raw.get("SSL_CA_BUNDLE", ""),

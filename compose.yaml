@@ -7,6 +7,10 @@ services:
     volumes:
       # SQLite + бэкапы живут на хосте, переживают пересборку контейнера
       - ./data:/app/data
+    # веб-панель: наружу только на localhost хоста — доступ идёт через nginx
+    # (в .env должно быть PANEL_PORT=8080 и PANEL_HOST=0.0.0.0)
+    ports:
+      - "127.0.0.1:8080:8080"
     tmpfs:
       - /tmp
     read_only: true
