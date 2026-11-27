@@ -469,6 +469,9 @@ async def _on_dm_message(app, msg: IncomingMessage) -> None:
 
     # команды
     if text.startswith("/"):
+        if low.startswith("/веб") or low.startswith("/web") or low.startswith("/panel"):
+            await _web_login(app, uid)
+            return
         if await _admin_commands(app, msg):
             return
         if low.startswith("/start") or low.startswith("/начать"):
@@ -675,6 +678,33 @@ def _poll_text_vote(s, cfg, uid: int, poll_id: int, text: str) -> str:
 
 
 # --- команды главы -------------------------------------------------------------------
+
+
+async def _web_login(app, uid: int) -> None:
+    """Команда /веб: одноразовая ссылка для входа в веб-панель."""
+    import uuid as _uuid
+    from datetime import timedelta
+
+    if not app.cfg.panel_url:
+        await app.vk.send_message(uid, "Веб-панель не настроена. Попроси руководителя.")
+        return
+
+    token = _uuid.uuid4().hex
+    from dal.database import now_utc
+    from dal.models import WebSession as WS
+
+    with app.db.session() as s:
+        acc = repo.ensure_account(s, "vk", uid)
+        s.add(WS(login_token=token, account_id=acc.id,
+                  expires_at=now_utc() + timedelta(hours=24)))
+        s.commit()
+
+    url = f"{app.cfg.panel_url}/auth?t={token}"
+    await app.vk.send_message(
+        uid,
+        f"🔗 Вход в панель клуба (ссылка действует 24 часа):\n{url}\n\n"
+        f"После входа увидишь свои события, взносы и запись.",
+    )
 
 
 async def _member_fees(app, uid: int) -> None:

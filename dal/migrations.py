@@ -98,15 +98,30 @@ def _m6_dm_messages(conn: Connection) -> None:
     )
 
 
+def _m7_web_sessions(conn: Connection) -> None:
+    conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS web_sessions (
+            id INTEGER PRIMARY KEY,
+            login_token VARCHAR(64) UNIQUE NOT NULL,
+            session_key VARCHAR(64) UNIQUE,
+            account_id INTEGER NOT NULL REFERENCES accounts(id),
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            expires_at DATETIME NOT NULL,
+            login_used BOOLEAN DEFAULT 0
+        )
+    """))
+
+
 MIGRATIONS: list[tuple[int, str, Migration]] = [
     (2, "auto_closed (переоткрытие записи)", _m2_auto_closed),
     (3, "v6: оплата/имена/заявки TG (fee_entries, display_override, fee_alerted, banned)", _m3_v6),
     (4, "app_meta (мемоизация админов)", _m4_meta),
     (5, "panel_sessions (вход в админ-панель по одобрению)", _m5_panel),
     (6, "dm_messages (переписка с админом в панели)", _m6_dm_messages),
+    (7, "web_sessions (вход в веб-панель по ссылке из бота)", _m7_web_sessions),
 ]
 
-CURRENT_VERSION = 6
+CURRENT_VERSION = 7
 
 
 def add_column_if_missing(conn: Connection, table: str, column: str, ddl: str) -> None:

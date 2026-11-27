@@ -35,11 +35,11 @@ def _add_col(col_name):
 
 def test_fresh_db_stamps_current(monkeypatch, tmp_path):
     db = make_db(tmp_path)
-    monkeypatch.setattr(mig, "CURRENT_VERSION", 6)
+    monkeypatch.setattr(mig, "CURRENT_VERSION", 7)
     assert mig.apply_migrations(db.engine) == []
     with db.engine.connect() as c:
         v = c.execute(text("SELECT version FROM schema_version WHERE id=1")).scalar()
-    assert v == 6
+    assert v == 7
 
 
 def test_migration_applied_and_tracked(monkeypatch, tmp_path):
@@ -68,6 +68,7 @@ def test_v2_migration_idempotent_on_fresh_schema(tmp_path):
         "app_meta (мемоизация админов)",
         "panel_sessions (вход в админ-панель по одобрению)",
         "dm_messages (переписка с админом в панели)",
+        "web_sessions (вход в веб-панель по ссылке из бота)",
     ]
     assert "auto_closed" in _columns(db, "events")
     assert "auto_closed" in _columns(db, "polls")
@@ -78,7 +79,7 @@ def test_v2_migration_idempotent_on_fresh_schema(tmp_path):
         v = c.execute(text("SELECT version FROM schema_version WHERE id=1")).scalar()
         tables = [r[0] for r in c.execute(
             text("SELECT name FROM sqlite_master WHERE type='table'"))]
-    assert v == 6
+    assert v == 7
     assert "app_meta" in tables
     assert "panel_sessions" in tables
     assert "dm_messages" in tables

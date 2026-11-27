@@ -292,5 +292,22 @@ class DmMessage(Base):
     chat_id: Mapped[str] = mapped_column(String(32))
     direction: Mapped[str] = mapped_column(String(4))  # in | out
     text: Mapped[str] = mapped_column(Text, default="")
+    media: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now_utc)
+
+
+class WebSession(Base):
+    """Вход в веб-панель: login_token (одноразовая ссылка) → session_key (cookie 30 дней)."""
+    __tablename__ = "web_sessions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    login_token: Mapped[str] = mapped_column(String(64), unique=True)  # uuid4().hex
+    session_key: Mapped[str | None] = mapped_column(String(64), unique=True)  # uuid4().hex
+    account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"))
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now_utc)
+    expires_at: Mapped[dt.datetime] = mapped_column(DateTime)  # login: 24ч; session: 30д
+    login_used: Mapped[bool] = mapped_column(Boolean, default=False)
+    direction: Mapped[str] = mapped_column(String(4))  # in | out
+    text: Mapped[str] = mapped_column(Text, default="")
     media: Mapped[str | None] = mapped_column(Text)  # JSON [MediaRef]
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now_utc)

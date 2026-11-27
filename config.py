@@ -23,7 +23,7 @@ _ENV_KEYS = {
     "FEE_MONTHLY_RUB", "DEBT_ALERT_LIMIT_RUB",
     "READONLY_CHAT_PEERS", "CARD_CHAT_PEER",
     "TG_CARD_CHAT_ID", "TG_READONLY_CHAT_ID",
-    "PANEL_PORT", "PANEL_HOST", "PANEL_SECRET",
+    "PANEL_PORT", "PANEL_HOST", "PANEL_SECRET", "PANEL_URL",
     "SSL_VERIFY", "SSL_CA_BUNDLE",
 }
 
@@ -83,6 +83,7 @@ class Config:
     panel_port: int = 0                   # порт панели (0 — выключена)
     panel_host: str = "127.0.0.1"         # адрес, на котором слушает панель
     panel_secret: str = ""                # резервный вход владельца (?key=...)
+    panel_url: str = ""                   # публичный URL для ссылок (/веб → боту)
     # сеть
     ssl_verify: bool = True
     ssl_ca_bundle: str = ""
@@ -141,6 +142,7 @@ class Config:
             tg_readonly_chat_id=int(raw.get("TG_READONLY_CHAT_ID", 0) or 0),
             panel_port=int(raw.get("PANEL_PORT", 0) or 0),
             panel_host=raw.get("PANEL_HOST", "127.0.0.1") or "127.0.0.1",
+            panel_url=raw.get("PANEL_URL", "").rstrip("/"),
             panel_secret=raw.get("PANEL_SECRET", ""),
             ssl_verify=_bool(raw.get("SSL_VERIFY", ""), True),
             ssl_ca_bundle=raw.get("SSL_CA_BUNDLE", ""),

@@ -1,7 +1,20 @@
-/** E2E: участник — обновлено под новый UI. */
-import { describe, it, expect } from 'vitest';
+/** E2E: участник — обновлено под auth flow. */
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
 import { tick } from 'svelte';
+
+// мокаем auth store (в тестах всегда авторизованы как участник)
+vi.mock('../src/lib/auth.js', () => {
+  const { writable } = require('svelte/store');
+  const mockUser = writable({ id: 1, name: 'Тест Участник', role: 'member', platform: 'vk', announcements: true, subscription: 'active' });
+  return {
+    user: mockUser,
+    authLoading: writable(false),
+    checkAuth: vi.fn(),
+    loginWithToken: vi.fn(),
+    logout: vi.fn(() => mockUser.set(null)),
+  };
+});
 
 import App from '../src/App.svelte';
 import Afisha from '../src/pages/member/Afisha.svelte';
@@ -10,10 +23,19 @@ import Fees from '../src/pages/member/Fees.svelte';
 import Profile from '../src/pages/member/Profile.svelte';
 
 describe('E2E: Навигация', () => {
-  it('обложка показывает обе кнопки', () => {
+  it('обложка показывает кнопку участника', () => {
     render(App);
     expect(screen.getByText('Участник')).toBeInTheDocument();
-    expect(screen.getByText('Руководитель')).toBeInTheDocument();
+  });
+
+  it('обложка показывает имя пользователя', () => {
+    render(App);
+    expect(screen.getByText(/Тест Участник/i)).toBeInTheDocument();
+  });
+
+  it('кнопка «Руководитель» скрыта для участника', () => {
+    render(App);
+    expect(screen.queryByText('Руководитель')).not.toBeInTheDocument();
   });
 
   it('клик «Участник» ведёт на /member', async () => {
@@ -21,13 +43,6 @@ describe('E2E: Навигация', () => {
     fireEvent.click(screen.getByText('Участник'));
     await tick();
     expect(window.location.hash).toBe('#/member');
-  });
-
-  it('клик «Руководитель» ведёт на /admin', async () => {
-    render(App);
-    fireEvent.click(screen.getByText('Руководитель'));
-    await tick();
-    expect(window.location.hash).toBe('#/admin');
   });
 
   it('обложка: «Клуб по интересам»', () => {
@@ -146,10 +161,10 @@ describe('E2E: Участник · Взнос', () => {
 });
 
 describe('E2E: Участник · Профиль', () => {
-  it('показывает имя', async () => {
+  it('показывает имя из auth store', async () => {
     render(Profile);
     await waitFor(() => {
-      expect(screen.getByText(/Аня К\./i)).toBeInTheDocument();
+      expect(screen.getByText(/Тест Участник/i)).toBeInTheDocument();
     });
   });
 
@@ -168,10 +183,13 @@ describe('E2E: Участник · Профиль', () => {
     });
   });
 
-  it('нет info об академе (только у руководителя)', async () => {
+  it('показывает статус подписки', async () => {
     render(Profile);
-    await waitFor(() => screen.getByText(/Аня К\./i));
+    await waitFor(() => screen.getByText(/Статус подписки/i));
+  });
+
+  it('нет академа у участника', async () => {
+    render(Profile);
     expect(screen.queryByText(/Академический отпуск/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Включает руководитель/i)).not.toBeInTheDocument();
   });
 });

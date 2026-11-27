@@ -200,10 +200,15 @@ def make_handler(app):
         eid = int(request.match_info["id"])
         body = await request.json()
         answer = body.get("answer", "")
-        platform = body.get("platform", "vk")
-        user_id = int(body.get("user_id", 0))
+        user = request.get("user")
+        if user:
+            platform = user["platform"]
+            user_id = user["platform_user_id"]
+        else:
+            platform = body.get("platform", "vk")
+            user_id = int(body.get("user_id", 0))
         if not user_id:
-            return web.json_response({"error": "user_id обязателен"}, status=400)
+            return web.json_response({"error": "не авторизован"}, status=401)
         with db.session() as s:
             result = rsvp_vote(s, cfg, platform, user_id, eid, answer)
             s.commit()
@@ -338,7 +343,11 @@ def make_handler(app):
     # ─────────── ОПЛАТА ───────────
 
     async def get_fees(request):
-        person_id = int(request.query.get("person_id", 0))
+        user = request.get("user")
+        if user and user.get("person_id"):
+            person_id = user["person_id"]
+        else:
+            person_id = int(request.query.get("person_id", 0))
         if not person_id:
             return web.json_response({"error": "person_id обязателен"}, status=400)
         with db.session() as s:
@@ -568,27 +577,76 @@ async def start_webpanel(app, port: int):
 
     # ── авторизация (если задан PANEL_SECRET) ──────────────────
     # Панель содержит персональные данные — наружу (nginx/домен) без ключа нельзя.
-    # Доступ: ?key=SECRET в URL (ставит cookie на 30 дней) или Basic Auth (пароль = SECRET).
-    if cfg.panel_secret:
-        import base64
-        secret = cfg.panel_secret
-        cookie_max_age = 30 * 24 * 3600
+    # Два способа доступа:
+    #  1) Сессия пользователя (cookie "sid", создаётся через /api/auth/login?t=token из бота)
+    #  2) PANEL_SECRET (?key= или Basic Auth) — админский bootstrap
+    import base64 as _b64
+    import uuid as _uuid
+    from datetime import timedelta as _td
+    from dal.models import WebSession as _WS, Account as _Acc, Person as _Per
+    from dal.database import now_utc as _now
+    from sqlalchemy import select as _sel
 
-        @web.middleware
-        async def auth_mw(request, handler):
-            if request.path == "/api/health":  # healthcheck открыт
-                return await handler(request)
+    SESSION_COOKIE = "sid"
+    SESSION_DAYS = 30
+
+    def _get_session_user(s, request):
+        """Возвращает инфо о пользователе из cookie sid или None."""
+        sid = request.cookies.get(SESSION_COOKIE)
+        if not sid:
+            return None
+        ws = s.scalar(_sel(_WS).where(_WS.session_key == sid, _WS.login_used == True))
+        if ws is None or ws.expires_at < _now():
+            return None
+        acc = s.get(_Acc, ws.account_id)
+        if acc is None:
+            return None
+        is_admin = acc.platform == "vk" and acc.platform_user_id in cfg.admin_vk_ids
+        sub = repo.get_subscription(s, acc.id)
+        person = s.get(_Per, acc.person_id) if acc.person_id else None
+        return {
+            "account_id": acc.id,
+            "person_id": acc.person_id,
+            "name": (person.display_override if person and person.display_override else None)
+                    or acc.display_name or str(acc.platform_user_id),
+            "platform": acc.platform,
+            "platform_user_id": acc.platform_user_id,
+            "role": "admin" if is_admin else "member",
+            "subscription": sub.status if sub else "unknown",
+            "announcements": sub.send_announcements if sub else True,
+        }
+
+    @web.middleware
+    async def auth_mw(request, handler):
+        if request.path == "/api/health":
+            return await handler(request)
+
+        # сессия пользователя (cookie)
+        with db.session() as s:
+            user = _get_session_user(s, request)
+        if user:
+            request["user"] = user
+            return await handler(request)
+
+        # PANEL_SECRET: ?key= или cookie или Basic Auth
+        if cfg.panel_secret:
+            secret = cfg.panel_secret
+            cookie_max_age = SESSION_DAYS * 24 * 3600
+
             if request.cookies.get("panel_key") == secret:
+                request["user"] = {"role": "admin", "name": "Руководитель"}
                 return await handler(request)
+
             if request.query.get("key") == secret:
                 resp = await handler(request)
                 resp.set_cookie("panel_key", secret, httponly=True,
                                 samesite="Lax", max_age=cookie_max_age)
                 return resp
+
             auth = request.headers.get("Authorization", "")
             if auth.startswith("Basic "):
                 try:
-                    decoded = base64.b64decode(auth[6:]).decode("utf-8")
+                    decoded = _b64.b64decode(auth[6:]).decode("utf-8")
                     if decoded.split(":", 1)[-1] == secret:
                         resp = await handler(request)
                         resp.set_cookie("panel_key", secret, httponly=True,
@@ -596,15 +654,68 @@ async def start_webpanel(app, port: int):
                         return resp
                 except Exception:
                     pass
-            if request.path.startswith("/api/"):
-                return web.json_response({"error": "unauthorized"}, status=401)
-            return web.Response(
-                status=401,
-                text="401: панель закрыта. Открой адрес с ключом: /?key=SECRET",
-            )
 
-        web_app.middlewares.append(auth_mw)
-        log.info("веб-панель: авторизация по PANEL_SECRET включена")
+        # auth endpoints не требуют сессии
+        if request.path.startswith("/api/auth/"):
+            return await handler(request)
+
+        if request.path.startswith("/api/"):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        # SPA без ключа — отдаём index (фронт покажет логин-экран)
+        return await handler(request)
+
+    web_app.middlewares.append(auth_mw)
+
+    # ── auth endpoints ──────────────────────────────────────────
+
+    async def auth_login(request):
+        """GET /api/auth/login?t=<login_token> — обменять одноразовый токен на сессию."""
+        token = request.query.get("t", "")
+        if not token:
+            return web.json_response({"error": "нет токена"}, status=400)
+        with db.session() as s:
+            ws = s.scalar(_sel(_WS).where(
+                _WS.login_token == token, _WS.login_used == False))
+            if ws is None or ws.expires_at < _now():
+                return web.json_response({"error": "ссылка недействительна или истекла"}, status=401)
+            # создать сессию
+            session_key = _uuid.uuid4().hex
+            ws.session_key = session_key
+            ws.login_used = True
+            ws.expires_at = _now() + _td(days=SESSION_DAYS)
+            s.commit()
+            # получить юзера
+            user = _get_session_user(s, request.clone(cookies={SESSION_COOKIE: session_key}))
+        if user is None:
+            return web.json_response({"error": "аккаунт не найден"}, status=401)
+        resp = web.json_response(user)
+        resp.set_cookie(SESSION_COOKIE, session_key, httponly=True,
+                        samesite="Lax", max_age=SESSION_DAYS * 24 * 3600)
+        return resp
+
+    async def auth_me(request):
+        """GET /api/auth/me — текущий пользователь."""
+        user = request.get("user")
+        if user:
+            return web.json_response(user)
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    async def auth_logout(request):
+        """POST /api/auth/logout — выход."""
+        sid = request.cookies.get(SESSION_COOKIE)
+        if sid:
+            with db.session() as s:
+                ws = s.scalar(_sel(_WS).where(_WS.session_key == sid))
+                if ws:
+                    ws.session_key = None
+                    s.commit()
+        resp = web.json_response({"ok": True})
+        resp.del_cookie(SESSION_COOKIE)
+        return resp
+
+    web_app.router.add_get("/api/auth/login", auth_login)
+    web_app.router.add_get("/api/auth/me", auth_me)
+    web_app.router.add_post("/api/auth/logout", auth_logout)
 
     # статика через middleware (API маршруты уже зарегистрированы выше)
     if FRONTEND_DIST.exists():
