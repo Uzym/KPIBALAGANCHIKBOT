@@ -517,6 +517,39 @@ def make_handler(app):
     async def get_admin_applications(request):
         return web.json_response([])
 
+    async def get_announcements(request):
+        """Все объявления (по событиям, опросам, глобальные) — свежие сверху."""
+        with db.session() as s:
+            from dal.models import Announcement, Event, Poll
+            from sqlalchemy import select as sel
+            rows = list(s.execute(
+                sel(Announcement, Event, Poll)
+                .outerjoin(Event, (Announcement.content_type == "event") & (Announcement.content_id == Event.id))
+                .outerjoin(Poll, (Announcement.content_type == "poll") & (Announcement.content_id == Poll.id))
+                .order_by(Announcement.created_at.desc())
+                .limit(100)
+            ))
+            result = []
+            for ann, ev, poll in rows:
+                if ann.content_type == "event" and ev:
+                    target = f"«{ev.title}»"
+                elif ann.content_type == "poll" and poll:
+                    target = f"«{poll.title}»"
+                elif ann.content_type == "global":
+                    target = "Клуб"
+                else:
+                    target = ann.content_type
+                from dal.database import from_db as _fdb
+                result.append({
+                    "id": ann.id,
+                    "text": ann.text,
+                    "target": target,
+                    "content_type": ann.content_type,
+                    "content_id": ann.content_id,
+                    "date": _fdb(ann.created_at).astimezone(cfg.tz).strftime("%d.%m %H:%M") if ann.created_at else "",
+                })
+            return web.json_response(result)
+
     # ─────────── ЗДОРОВЬЕ ───────────
 
     async def health(request):
@@ -571,6 +604,7 @@ async def start_webpanel(app, port: int):
         web.post("/api/admin/fees/payment", h["post_admin_payment"]),
         web.post("/api/admin/fees/charge", h["post_admin_charge"]),
         web.get("/api/admin/applications", h["get_admin_applications"]),
+        web.get("/api/announcements", h["get_announcements"]),
         # здоровье
         web.get("/api/health", h["health"]),
     ]

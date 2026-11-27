@@ -17,6 +17,7 @@
   import AdminFees from './pages/admin/Fees.svelte';
   import AdminPersonDetail from './pages/admin/PersonDetail.svelte';
   import AdminPolls from './pages/admin/Polls.svelte';
+  import AdminAnnouncements from './pages/admin/Announcements.svelte';
 
   const routes = {
     '/': null,
@@ -34,6 +35,7 @@
     '/admin/fees': AdminFees,
     '/admin/person': AdminPersonDetail,
     '/admin/polls': AdminPolls,
+    '/admin/announcements': AdminAnnouncements,
   };
 
   let currentPath = '';

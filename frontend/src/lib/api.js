@@ -295,6 +295,11 @@ export const api = {
     return Array.isArray(real) ? real : [...mock.admin.applications];
   },
 
+  async getAnnouncements() {
+    const real = await tryFetch('/announcements');
+    return Array.isArray(real) ? real : [];
+  },
+
   async approveApplication(id, approve) {
     const a = mock.admin.applications.find(x => x.id === id);
     if (a) a.status = approve ? 'approved' : 'denied';
