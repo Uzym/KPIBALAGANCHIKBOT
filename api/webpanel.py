@@ -60,16 +60,20 @@ def ser_event(s, cfg: Config, ev) -> dict:
 
 def ser_poll(s, cfg: Config, poll) -> dict:
     opts_raw = poll.options if isinstance(poll.options, list) else json.loads(poll.options or "[]")
-    # подсчёт голосов
-    from dal.models import PollVote
+    from dal.models import PollVote, Account, Person
     from sqlalchemy import select, func
     counts = {}
+    voters = {}  # option_id → [имена]
     for row in s.execute(
-        select(PollVote.option_id, func.count())
+        select(PollVote.option_id, Account.display_name, Person.display_override)
+        .join(Account, PollVote.account_id == Account.id, isouter=True)
+        .outerjoin(Person, Account.person_id == Person.id)
         .where(PollVote.poll_id == poll.id, PollVote.active == True)
-        .group_by(PollVote.option_id)
     ):
-        counts[row[0]] = row[1]
+        oid, name, override = row[0], row[1], row[2]
+        counts[oid] = counts.get(oid, 0) + 1
+        display = override or name or "?"
+        voters.setdefault(oid, []).append(display)
     total_votes = sum(counts.values())
     return {
         "id": poll.id,
@@ -79,7 +83,11 @@ def ser_poll(s, cfg: Config, poll) -> dict:
         "deadline": from_db(poll.closes_at).astimezone(cfg.tz).strftime("%d.%m") if poll.closes_at else None,
         "voted": total_votes,
         "options": [
-            {"id": o["idx"], "label": o["text"], "count": counts.get(o["idx"], 0)}
+            {
+                "id": o["idx"], "label": o["text"],
+                "count": counts.get(o["idx"], 0),
+                "voters": voters.get(o["idx"], []),
+            }
             for o in opts_raw
         ],
         "my_picks": [],

@@ -189,17 +189,26 @@
           </span>
         </div>
 
-        <!-- результаты -->
+        <!-- результаты с именами -->
         <div class="stack" style="gap:6px;margin-bottom:12px;">
           {#each poll.options as opt}
-            <div class="row-between">
-              <span style="font-size:14px;">{opt.label}</span>
-              <div class="row" style="gap:8px;">
-                <div class="progress" style="width:100px;">
-                  <span style="width:{poll.voted ? Math.round(opt.count / poll.voted * 100) : 0}%;"></span>
+            <div class="opt-result">
+              <div class="row-between">
+                <span style="font-size:14px;font-weight:500;">{opt.label}</span>
+                <div class="row" style="gap:8px;">
+                  <div class="progress" style="width:100px;">
+                    <span style="width:{poll.voted ? Math.round(opt.count / poll.voted * 100) : 0}%;"></span>
+                  </div>
+                  <span class="num" style="font-weight:600;min-width:24px;text-align:right;">{opt.count}</span>
                 </div>
-                <span class="num" style="font-weight:600;min-width:24px;text-align:right;">{opt.count}</span>
               </div>
+              {#if opt.voters?.length}
+                <div class="opt-voters">
+                  {#each opt.voters as voter}
+                    <span class="voter-name">{voter}</span>
+                  {/each}
+                </div>
+              {/if}
             </div>
           {/each}
         </div>
@@ -242,4 +251,13 @@
     background: var(--surface); color: var(--fg); font: inherit; font-size: 14px; min-height: 44px;
   }
   .opt-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
+  .opt-result { padding: 2px 0; }
+  .opt-voters {
+    display: flex; flex-wrap: wrap; gap: 3px 10px;
+    padding: 4px 0 2px 14px; font-size: 13px; color: var(--fg-mute);
+  }
+  .voter-name {
+    padding: 1px 8px; background: var(--surface-warm); border-radius: var(--radius-pill);
+    font-size: 12px;
+  }
 </style>
