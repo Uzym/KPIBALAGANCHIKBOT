@@ -27,18 +27,29 @@
     feeReports = [...feeReports];
     stats = await api.getAdminStats();
   }
+  $: blockedCount = stats?.subscription_stats?.blocked ?? 0;
+  $: pausedCount = stats?.subscription_stats?.paused ?? 0;
 </script>
 
 <AdminShell title="Дашборд">
   {#if loading}
     <div class="skeleton" style="height:300px;border-radius:18px;"></div>
   {:else}
-    <!-- ошибка -->
-    <div class="notice-banner" role="status">
-      <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
-      <span>У 2 участников бот заблокирован — карточки событий не доходят.</span>
-      <button class="notice-link" onclick={() => navigate('/admin/people')}>Кто это?</button>
-    </div>
+    <!-- уведомления -->
+    {#if blockedCount > 0}
+      <div class="notice-banner warn" role="status">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+        <span>У {blockedCount} участник{blockedCount === 1 ? 'а' : 'ов'} бот заблокирован — карточки событий не доходят.</span>
+        <button class="notice-link" onclick={() => navigate('/admin/people')}>Кто это?</button>
+      </div>
+    {/if}
+    {#if pausedCount > 0}
+      <div class="notice-banner" role="status">
+        <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+        <span>{pausedCount} в академе — взносы не начисляются.</span>
+        <button class="notice-link" onclick={() => navigate('/admin/people')}>Список</button>
+      </div>
+    {/if}
 
     <!-- счётчики -->
     <div class="stat-grid">
@@ -128,7 +139,23 @@
 </AdminShell>
 
 <style>
-  .ic { width:20px; height:20px; stroke:currentColor; fill:none; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; flex-shrink:0; color:var(--danger); }
+  .notice-banner {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 16px; margin-bottom: 12px;
+    background: rgba(110,116,72,0.08); border: 1px solid rgba(110,116,72,0.25);
+    border-radius: var(--radius); font-size: var(--fs-small); color: var(--fg-soft);
+  }
+  .notice-banner .ic { color: var(--olive); flex-shrink: 0; }
+  .notice-banner.warn {
+    background: rgba(233,185,74,0.1); border-color: rgba(233,185,74,0.35);
+  }
+  .notice-banner.warn .ic { color: var(--mustard); }
+  .notice-link {
+    background: none; border: 0; cursor: pointer;
+    color: var(--accent-dark); font: inherit; font-size: var(--fs-small);
+    font-weight: 600; text-decoration: underline; margin-left: auto; flex-shrink: 0;
+  }
+  .ic { width:20px; height:20px; stroke:currentColor; fill:none; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; flex-shrink:0; }
   .ic-sm { width:16px; height:16px; stroke:currentColor; fill:none; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
   .who { font-weight:600; font-size:14px; }
   .amount-edit {
