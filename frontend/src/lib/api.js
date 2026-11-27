@@ -83,7 +83,7 @@ const mock = {
     ],
   },
   admin: {
-    stats: { active_events: 3, active_polls: 1, subscribers: 24, total_debt: 2400, collected_month: 3800 },
+    stats: { active_events: 3, active_polls: 1, subscribers: 24, total_debt: 2400, collected_month: 3800, subscription_stats: { active: 21, paused: 2, blocked: 1 } },
     applications: [
       { id: 1, name: 'Марк', username: '@mark_kpi', time: '14:02', status: 'pending' },
       { id: 2, name: 'Лиза', username: '@liza_t', time: 'вчера', status: 'pending' },
