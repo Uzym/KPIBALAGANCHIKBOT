@@ -535,6 +535,7 @@ def make_handler(app):
 async def start_webpanel(app, port: int):
     h = make_handler(app)
     cfg = app.cfg
+    db = app.db
 
     web_app = web.Application()
 
